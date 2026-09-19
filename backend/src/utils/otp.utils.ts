@@ -1,9 +1,9 @@
 import crypto from "node:crypto";
 
 /**
- * Generate a cryptographically secure 4-digit numeric OTP.
+ * Generate a cryptographically secure numeric OTP (default 6 digits).
  */
-export function generateNumericOtp(digits: number = 4): string {
+export function generateNumericOtp(digits: number = 6): string {
   const min = Math.pow(10, digits - 1);
   const max = Math.pow(10, digits) - 1;
   return crypto.randomInt(min, max + 1).toString();

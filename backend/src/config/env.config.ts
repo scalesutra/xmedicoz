@@ -31,9 +31,12 @@ const envSchema = z.object({
   OTP_MAX_ATTEMPTS: z.coerce.number().default(5),
   OTP_RATE_LIMIT_MAX: z.coerce.number().default(3),
   OTP_RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().default(600),
+  OTP_DIGITS: z.coerce.number().default(6),
 
   SMS_PROVIDER: z.string().default("mock"),
   EMAIL_PROVIDER: z.string().default("mock"),
+  MSG91_AUTH_KEY: z.string().optional().default(""),
+  MSG91_OTP_TEMPLATE_ID: z.string().optional().default(""),
 });
 
 export const env = envSchema.parse(process.env);

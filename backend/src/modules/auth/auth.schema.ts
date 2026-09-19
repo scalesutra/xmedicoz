@@ -19,7 +19,7 @@ export const RequestOtpSchema = z
 export const VerifyOtpSchema = z
   .object({
     identifier: z.string().min(3, "Identifier is required"),
-    code: z.string().length(4, "OTP must be exactly 4 digits"),
+    code: z.string().regex(/^\d{4,6}$/, "OTP must be 4 to 6 digits"),
     channel: z.enum(["EMAIL", "PHONE"]).optional(),
     purpose: z.enum(["LOGIN", "RESET_PASSWORD", "VERIFY_ACCOUNT"]).optional(),
   })
@@ -34,7 +34,7 @@ export const RefreshTokenSchema = z.object({
 
 export const ResetPasswordSchema = z.object({
   identifier: z.string().min(3, "Identifier is required"),
-  code: z.string().length(4, "OTP must be exactly 4 digits"),
+  code: z.string().regex(/^\d{4,6}$/, "OTP must be 4 to 6 digits"),
   channel: z.enum(["EMAIL", "PHONE"]),
   newPassword: z.string().min(8, "New password must be at least 8 characters"),
 });

@@ -36,8 +36,8 @@ export class OtpService {
       throw AppError.rateLimited(`Too many OTP requests. Please wait ${ttl > 0 ? ttl : 60} seconds before requesting again.`);
     }
 
-    // 2. Generate 4-digit OTP
-    const code = generateNumericOtp(4);
+    // 2. Generate numeric OTP (configured digits, default 6)
+    const code = generateNumericOtp(env.OTP_DIGITS || 6);
     const otpKey = CACHE_KEYS.otp(channel, normalizedIdentifier);
 
     const otpData: StoredOtpData = {
@@ -55,8 +55,6 @@ export class OtpService {
 
     return {
       expiresInSeconds: env.OTP_EXPIRY_SECONDS,
-      // For development/testing environments, return the OTP directly in response for fast manual & automated testing
-      ...(env.NODE_ENV !== "production" ? { otp: code } : {}),
     };
   }
 
@@ -90,9 +88,8 @@ export class OtpService {
       throw AppError.badRequest("Maximum OTP verification attempts exceeded. Please request a new OTP.", ERROR_CODES.OTP_ATTEMPTS_EXCEEDED);
     }
 
-    // Check code: match exact generated code OR test master OTP '1234' in non-production
-    const isMasterTestOtp = env.NODE_ENV !== "production" && code.trim() === "1234";
-    if (otpData.code !== code.trim() && !isMasterTestOtp) {
+    // Match exact code received from SMS/Email (mock/bypass disabled)
+    if (otpData.code !== code.trim()) {
       otpData.attempts += 1;
       const ttl = await redis.ttl(otpKey);
       if (ttl > 0) {
@@ -108,7 +105,7 @@ export class OtpService {
   }
 
   /**
-   * Dispatch OTP message to user via configured provider (Mock in development/test)
+   * Dispatch OTP message to user via configured provider
    */
   private static async dispatchOtp(
     identifier: string,
@@ -116,7 +113,7 @@ export class OtpService {
     channel: OtpChannel,
     purpose: OtpPurpose
   ): Promise<void> {
-    const message = `Your Medical CRM verification code is: ${code}. Valid for 5 minutes. Do not share this code.`;
+    const message = `Your Xmedica verification code is: ${code}. Valid for 5 minutes. Do not share this code. - Xmedica`;
 
     if (channel === "PHONE") {
       logger.info(
@@ -124,24 +121,51 @@ export class OtpService {
           channel: "SMS",
           to: identifier,
           purpose,
-          // In development/mock mode, display OTP in logs for easy testing
-          devOtpCode: env.NODE_ENV !== "production" ? code : undefined,
         },
-        `[SMS Dispatch] ${message}`
+        `[SMS Dispatch] OTP sent to ${identifier}`
       );
-      // Integration with Fast2SMS / Twilio / MSG91 would be called here via BullMQ worker
+
+      // MSG91 Provider Integration
+      if (env.SMS_PROVIDER === "msg91" || (env.MSG91_AUTH_KEY && env.MSG91_OTP_TEMPLATE_ID)) {
+        try {
+          // Format mobile for MSG91 (digits only, prefix India 91 if 10 digits)
+          let mobile = identifier.replace(/\D/g, "");
+          if (mobile.length === 10) {
+            mobile = `91${mobile}`;
+          }
+
+          const url = new URL("https://control.msg91.com/api/v5/otp");
+          url.searchParams.set("template_id", env.MSG91_OTP_TEMPLATE_ID);
+          url.searchParams.set("mobile", mobile);
+          url.searchParams.set("authkey", env.MSG91_AUTH_KEY);
+          url.searchParams.set("otp", code);
+          url.searchParams.set("otp_expiry", Math.floor(env.OTP_EXPIRY_SECONDS / 60).toString());
+
+          const res = await fetch(url.toString(), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+          });
+
+          const data = (await res.json()) as { type?: string; message?: string; request_id?: string };
+          if (data.type === "success") {
+            logger.info({ mobile, requestId: data.request_id }, "MSG91 OTP sent successfully");
+          } else {
+            logger.error({ mobile, error: data.message || data }, "MSG91 OTP send failed");
+          }
+        } catch (smsError) {
+          logger.error({ smsError, identifier }, "Failed to deliver SMS via MSG91");
+        }
+      }
     } else {
       logger.info(
         {
           channel: "EMAIL",
           to: identifier,
           purpose,
-          // In development/mock mode, display OTP in logs for easy testing
-          devOtpCode: env.NODE_ENV !== "production" ? code : undefined,
+          template: message.replace(code, "******"),
         },
-        `[Email Dispatch] ${message}`
+        `[Email Dispatch] OTP sent to ${identifier}`
       );
-      // Integration with SMTP / Resend / SES would be called here via BullMQ worker
     }
   }
 }

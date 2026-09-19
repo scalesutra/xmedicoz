@@ -53,10 +53,6 @@ export const LoginPage: React.FC<{ onLoginSuccess?: () => void }> = ({ onLoginSu
 
     if (res.success) {
       setOtpSent(true);
-      if (res.otp) {
-        setDevOtp(res.otp);
-        setOtpCode(res.otp);
-      }
       setSuccessMsg("Verification code dispatched to administrator email.");
     } else {
       setErrorMsg(res.message || "Failed to dispatch verification OTP.");
@@ -65,8 +61,8 @@ export const LoginPage: React.FC<{ onLoginSuccess?: () => void }> = ({ onLoginSu
 
   const handleVerifyOtp = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!otpCode || otpCode.length !== 4) {
-      setErrorMsg("Please enter the 4-digit verification code.");
+    if (!otpCode || otpCode.length !== 6) {
+      setErrorMsg("Please enter the 6-digit verification code.");
       return;
     }
 
@@ -349,39 +345,20 @@ export const LoginPage: React.FC<{ onLoginSuccess?: () => void }> = ({ onLoginSu
               </form>
             ) : (
               <form onSubmit={handleVerifyOtp} style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-                {devOtp && (
-                  <div
-                    style={{
-                      padding: "0.6rem 0.85rem",
-                      borderRadius: "6px",
-                      backgroundColor: "rgba(6, 182, 212, 0.1)",
-                      border: "1px solid rgba(6, 182, 212, 0.25)",
-                      fontSize: "0.75rem",
-                      color: "#38BDF8",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                    }}
-                  >
-                    <span>Developer OTP:</span>
-                    <strong style={{ fontFamily: "monospace", fontSize: "0.95rem" }}>{devOtp}</strong>
-                  </div>
-                )}
-
                 <div>
                   <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 700, color: "#94A3B8", marginBottom: "0.35rem" }}>
-                    Enter 4-Digit Security Code
+                    Enter 6-Digit Security Code
                   </label>
                   <input
                     type="text"
-                    maxLength={4}
+                    maxLength={6}
                     value={otpCode}
                     onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ""))}
-                    placeholder="0000"
+                    placeholder="000000"
                     className="input-control mono"
                     style={{
                       fontSize: "1.5rem",
-                      letterSpacing: "0.5rem",
+                      letterSpacing: "0.4rem",
                       textAlign: "center",
                       fontWeight: 700,
                     }}

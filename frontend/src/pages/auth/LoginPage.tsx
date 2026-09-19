@@ -14,8 +14,10 @@ export const LoginPage: React.FC<{ onLoginSuccess?: () => void }> = ({ onLoginSu
   const [otpChannel, setOtpChannel] = useState<"SMS" | "WHATSAPP">("SMS");
   const [otpSent, setOtpSent] = useState(false);
   const [devOtp, setDevOtp] = useState<string | null>(null);
-  const [otpDigits, setOtpDigits] = useState(["", "", "", ""]);
+  const [otpDigits, setOtpDigits] = useState(["", "", "", "", "", ""]);
   const otpInputRefs = [
+    useRef<HTMLInputElement>(null),
+    useRef<HTMLInputElement>(null),
     useRef<HTMLInputElement>(null),
     useRef<HTMLInputElement>(null),
     useRef<HTMLInputElement>(null),
@@ -68,10 +70,6 @@ export const LoginPage: React.FC<{ onLoginSuccess?: () => void }> = ({ onLoginSu
 
     if (res.success) {
       setOtpSent(true);
-      if (res.otp) {
-        setDevOtp(res.otp);
-        setOtpDigits(res.otp.split(""));
-      }
       setTimeout(() => otpInputRefs[0].current?.focus(), 100);
     } else {
       setErrorMessage(res.message || "Unable to send verification code");
@@ -85,7 +83,7 @@ export const LoginPage: React.FC<{ onLoginSuccess?: () => void }> = ({ onLoginSu
     updated[index] = val;
     setOtpDigits(updated);
 
-    if (val && index < 3) {
+    if (val && index < 5) {
       otpInputRefs[index + 1].current?.focus();
     }
   };
@@ -99,8 +97,8 @@ export const LoginPage: React.FC<{ onLoginSuccess?: () => void }> = ({ onLoginSu
   // Handle Verify OTP
   const handleVerifyOtp = async () => {
     const fullOtp = otpDigits.join("");
-    if (fullOtp.length !== 4) {
-      setErrorMessage("Please enter complete 4-digit code");
+    if (fullOtp.length !== 6) {
+      setErrorMessage("Please enter complete 6-digit code");
       return;
     }
 
@@ -240,7 +238,7 @@ export const LoginPage: React.FC<{ onLoginSuccess?: () => void }> = ({ onLoginSu
               transition: "all 0.15s ease",
             }}
           >
-            4-Digit Instant OTP
+            6-Digit Instant OTP
           </button>
         </div>
 
@@ -474,42 +472,18 @@ export const LoginPage: React.FC<{ onLoginSuccess?: () => void }> = ({ onLoginSu
                     {isVerifying ? (
                       <span className="animate-spin-slow">⏳ Sending Code...</span>
                     ) : (
-                      "Send 4-Digit Passcode"
+                      "Send 6-Digit Passcode"
                     )}
                   </button>
                 </form>
               ) : (
                 <div>
-                  <p style={{ fontSize: "0.85rem", color: "#64748B", marginBottom: "1rem", textAlign: "center" }}>
-                    Enter the 4-digit passcode sent to <strong>{identifier}</strong>
+                  <p style={{ fontSize: "0.85rem", color: "#64748B", marginBottom: "1.2rem", textAlign: "center" }}>
+                    Enter the 6-digit passcode sent to <strong>{identifier}</strong>
                   </p>
 
-                  {devOtp && (
-                    <div
-                      style={{
-                        backgroundColor: "#ECFDF5",
-                        border: "1px solid #A7F3D0",
-                        color: "#065F46",
-                        padding: "0.45rem 0.75rem",
-                        borderRadius: "8px",
-                        fontSize: "0.8rem",
-                        textAlign: "center",
-                        marginBottom: "1.2rem",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        gap: "0.4rem",
-                      }}
-                    >
-                      <span>🧪</span>
-                      <span>
-                        Testing Mode: Auto-filled OTP <strong>{devOtp}</strong> (or enter <strong>1234</strong>)
-                      </span>
-                    </div>
-                  )}
-
-                  {/* 4-Digit Animated Input Boxes */}
-                  <div style={{ display: "flex", justifyContent: "center", gap: "0.75rem", marginBottom: "1.5rem" }}>
+                  {/* 6-Digit Animated Input Boxes */}
+                  <div style={{ display: "flex", justifyContent: "center", gap: "0.5rem", marginBottom: "1.5rem" }}>
                     {otpDigits.map((digit, idx) => (
                       <input
                         key={idx}
@@ -521,10 +495,10 @@ export const LoginPage: React.FC<{ onLoginSuccess?: () => void }> = ({ onLoginSu
                         onChange={(e) => handleOtpChange(idx, e.target.value)}
                         onKeyDown={(e) => handleOtpKeyDown(idx, e)}
                         style={{
-                          width: "56px",
-                          height: "60px",
+                          width: "46px",
+                          height: "52px",
                           textAlign: "center",
-                          fontSize: "1.5rem",
+                          fontSize: "1.35rem",
                           fontWeight: 700,
                           borderRadius: "10px",
                           border: digit ? "2px solid #059669" : "2px solid #CBD5E1",
