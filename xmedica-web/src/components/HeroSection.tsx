@@ -5,7 +5,6 @@ import {
   Sparkles,
   CheckCircle2,
   Database,
-  Lock,
 } from "lucide-react";
 import { AppColors } from "../theme/colors";
 import { AppConfig } from "../config/appConfig";
@@ -283,28 +282,18 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
               </div>
             </div>
 
-            <div style={{ padding: "0.5rem" }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "0.35rem", marginBottom: "0.2rem" }}>
-                <Lock size={17} color={AppColors.amberWarning} />
-                <span style={{ fontSize: "1.25rem", fontWeight: 800, color: AppColors.textPrimary }} className="tabular-nums">
-                  Keycloak JWT
-                </span>
-              </div>
-              <div style={{ fontSize: "0.76rem", color: AppColors.textSecondary }}>
-                Secure Clinical Session
-              </div>
-            </div>
+
           </div>
         </div>
       </div>
 
       <style>{`
         .hero-stats-grid {
-          grid-template-columns: repeat(4, 1fr);
+          grid-template-columns: repeat(3, 1fr);
         }
         @media (max-width: 860px) {
           .hero-stats-grid {
-            grid-template-columns: repeat(2, 1fr) !important;
+            grid-template-columns: repeat(3, 1fr) !important;
           }
           .hero-buttons-container {
             flex-direction: column !important;
@@ -316,7 +305,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
             min-width: 0 !important;
           }
         }
-        @media (max-width: 440px) {
+        @media (max-width: 580px) {
           .hero-stats-grid {
             grid-template-columns: 1fr !important;
           }
