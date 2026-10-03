@@ -8,6 +8,32 @@ class AuthRepository {
 
   AuthRepository({ApiClient? apiClient}) : _apiClient = apiClient ?? ApiClient();
 
+  /// 0. Standard Signup / Register
+  Future<AuthDataModel> register({
+    required String identifier,
+    required String password,
+    String? name,
+  }) async {
+    final response = await _apiClient.post(
+      ApiConstants.register,
+      data: {
+        'identifier': identifier,
+        'password': password,
+        if (name != null && name.trim().isNotEmpty) 'name': name.trim(),
+      },
+    );
+
+    final mergedData = <String, dynamic>{};
+    if (response is Map<String, dynamic>) {
+      mergedData.addAll(response);
+      if (response['data'] is Map<String, dynamic>) {
+        mergedData.addAll(response['data'] as Map<String, dynamic>);
+      }
+      return AuthDataModel.fromJson(mergedData);
+    }
+    throw Exception('Invalid response received from server.');
+  }
+
   /// 1. Password Login (Email or Phone)
   Future<AuthDataModel> loginWithPassword({
     required String identifier,
@@ -66,10 +92,6 @@ class AuthRepository {
     );
 
     if (response is Map<String, dynamic>) {
-      print('===================================================================');
-      print('🚨 RAW LOGIN RESPONSE: $response');
-      print('===================================================================');
-
       // Merge root response and data object in case tokens are outside data
       final mergedData = <String, dynamic>{};
       mergedData.addAll(response);
@@ -78,9 +100,6 @@ class AuthRepository {
       }
       
       final authData = AuthDataModel.fromJson(mergedData);
-      print('🚨 EXTRACTED TOKEN: ${authData.tokens?.accessToken}');
-      print('===================================================================');
-      
       return authData;
     }
     throw Exception('Failed to verify OTP code.');

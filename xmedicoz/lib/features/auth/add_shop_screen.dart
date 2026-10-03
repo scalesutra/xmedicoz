@@ -27,6 +27,7 @@ class _AddShopScreenState extends State<AddShopScreen> {
   final TextEditingController _emailCtrl = TextEditingController();
   final TextEditingController _passwordCtrl = TextEditingController();
   bool _obscurePassword = true;
+  final TextEditingController _addressCtrl = TextEditingController();
   final TextEditingController _cityCtrl = TextEditingController();
   final TextEditingController _dlCtrl = TextEditingController(); // Drug License
   final TextEditingController _gstinCtrl = TextEditingController(); // Optional
@@ -43,6 +44,7 @@ class _AddShopScreenState extends State<AddShopScreen> {
     _phoneCtrl.dispose();
     _emailCtrl.dispose();
     _passwordCtrl.dispose();
+    _addressCtrl.dispose();
     _cityCtrl.dispose();
     _dlCtrl.dispose();
     _gstinCtrl.dispose();
@@ -57,16 +59,17 @@ class _AddShopScreenState extends State<AddShopScreen> {
     final phone = _phoneCtrl.text.trim();
     final email = _emailCtrl.text.trim();
     final password = _passwordCtrl.text;
+    final address = _addressCtrl.text.trim();
     final city = _cityCtrl.text.trim();
     final dlNo = _dlCtrl.text.trim();
     final cash = double.tryParse(_cashCtrl.text.trim());
     final bank = double.tryParse(_bankCtrl.text.trim());
 
-    if (name.isEmpty || ownerName.isEmpty || phone.isEmpty || city.isEmpty || dlNo.isEmpty) {
+    if (name.isEmpty || phone.isEmpty) {
       UniqueSnackbar.showWarning(
         context,
-        title: 'Missing Fields',
-        message: 'Please fill in all the required pharmacy details.',
+        title: 'Missing Required Fields',
+        message: 'Please provide Pharmacy Name * and Mobile Number *.',
       );
       return;
     }
@@ -82,7 +85,7 @@ class _AddShopScreenState extends State<AddShopScreen> {
 
     if (ownerName.isNotEmpty || email.isNotEmpty || password.isNotEmpty) {
       await authController.updateProfile(
-        firstName: ownerName,
+        firstName: ownerName.isNotEmpty ? ownerName : null,
         phone: fullPhone.isNotEmpty ? fullPhone : null,
         email: email.isNotEmpty ? email : null,
         password: password.isNotEmpty ? password : null,
@@ -91,13 +94,14 @@ class _AddShopScreenState extends State<AddShopScreen> {
 
     final shopData = <String, dynamic>{
       "name": name,
-      "ownerName": ownerName,
       "phone": fullPhone,
-      "city": city,
-      "drugLicenseNo": dlNo.toUpperCase(),
-      "gstin": _gstinCtrl.text.trim().isEmpty ? null : _gstinCtrl.text.trim().toUpperCase(),
-      "planCode": "TRIAL",
       if (email.isNotEmpty) "email": email,
+      if (dlNo.isNotEmpty) "drugLicenseNo": dlNo.toUpperCase(),
+      if (_gstinCtrl.text.trim().isNotEmpty) "gstin": _gstinCtrl.text.trim().toUpperCase(),
+      if (address.isNotEmpty) "address": address,
+      if (city.isNotEmpty) "city": city,
+      if (ownerName.isNotEmpty) "ownerName": ownerName,
+      "planCode": "TRIAL",
       if (password.isNotEmpty) "password": password,
       if (cash != null && cash > 0) "openingCashBalance": cash,
       if (bank != null && bank > 0) "openingBankBalance": bank,
@@ -210,9 +214,21 @@ class _AddShopScreenState extends State<AddShopScreen> {
               SizedBox(height: 14.h),
 
               AppTextField(
+                controller: _phoneCtrl,
+                hintText: 'Enter mobile number',
+                labelText: 'Pharmacy Mobile Number *',
+                prefixIcon: CommonCountryCodePicker(
+                  selectedCountry: _selectedCountry,
+                  onCountryChanged: (c) => setState(() => _selectedCountry = c),
+                ),
+                keyboardType: TextInputType.phone,
+              ),
+              SizedBox(height: 14.h),
+
+              AppTextField(
                 controller: _ownerNameCtrl,
                 hintText: 'e.g. Dr. Rajesh Sharma (R.Ph)',
-                labelText: AppStrings.shopOwnerHint,
+                labelText: 'Owner / Chemist Name (Optional)',
                 prefixIcon: const Icon(Icons.person_rounded, color: AppColors.textSecondary),
               ),
               SizedBox(height: 14.h),
@@ -220,7 +236,7 @@ class _AddShopScreenState extends State<AddShopScreen> {
               AppTextField(
                 controller: _emailCtrl,
                 hintText: 'your.email@example.com',
-                labelText: 'Email Address',
+                labelText: 'Email Address (Optional)',
                 prefixIcon: const Icon(Icons.email_rounded, color: AppColors.textSecondary),
                 keyboardType: TextInputType.emailAddress,
               ),
@@ -229,7 +245,7 @@ class _AddShopScreenState extends State<AddShopScreen> {
               AppTextField(
                 controller: _passwordCtrl,
                 hintText: 'Set a strong password for login',
-                labelText: 'Account Password',
+                labelText: 'Account Password (Optional)',
                 obscureText: _obscurePassword,
                 prefixIcon: const Icon(Icons.lock_rounded, color: AppColors.textSecondary),
                 suffixIcon: IconButton(
@@ -240,18 +256,6 @@ class _AddShopScreenState extends State<AddShopScreen> {
                   onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
                 ),
               ),
-              SizedBox(height: 14.h),
-
-              AppTextField(
-                controller: _phoneCtrl,
-                hintText: 'Enter mobile number',
-                labelText: AppStrings.shopPhoneHint,
-                prefixIcon: CommonCountryCodePicker(
-                  selectedCountry: _selectedCountry,
-                  onCountryChanged: (c) => setState(() => _selectedCountry = c),
-                ),
-                keyboardType: TextInputType.phone,
-              ),
               SizedBox(height: 32.h),
 
               // Pharmacy Details Section
@@ -261,15 +265,23 @@ class _AddShopScreenState extends State<AddShopScreen> {
               AppTextField(
                 controller: _shopNameCtrl,
                 hintText: 'e.g. Sanjivani Medical & Chemist Store',
-                labelText: AppStrings.shopNameHint,
+                labelText: 'Pharmacy Name *',
                 prefixIcon: const Icon(Icons.local_pharmacy_rounded, color: AppColors.primaryEmerald),
+              ),
+              SizedBox(height: 14.h),
+
+              AppTextField(
+                controller: _addressCtrl,
+                hintText: 'e.g. Shop #12, Market Complex',
+                labelText: 'Street Address (Optional)',
+                prefixIcon: const Icon(Icons.storefront_rounded, color: AppColors.textSecondary),
               ),
               SizedBox(height: 14.h),
 
               AppTextField(
                 controller: _cityCtrl,
                 hintText: 'City, Area',
-                labelText: AppStrings.shopCityHint,
+                labelText: 'City / Region (Optional)',
                 prefixIcon: const Icon(Icons.location_on_rounded, color: AppColors.textSecondary),
               ),
               SizedBox(height: 14.h),
@@ -278,7 +290,7 @@ class _AddShopScreenState extends State<AddShopScreen> {
               AppTextField(
                 controller: _dlCtrl,
                 hintText: 'e.g. DL-20B/21B-449102',
-                labelText: 'Drug License Number (DL No.)',
+                labelText: 'Drug License Number (DL No.) (Optional)',
                 prefixIcon: const Icon(Icons.health_and_safety_rounded, color: AppColors.primaryEmerald),
               ),
               SizedBox(height: 14.h),

@@ -144,6 +144,9 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
       if (!mounted) return;
 
       if (success) {
+        FocusManager.instance.primaryFocus?.unfocus();
+        FocusScope.of(context).unfocus();
+        SystemChannels.textInput.invokeMethod('TextInput.hide');
         UniqueOtpV7Sheet.show(context, phone: rawInput, channel: 'EMAIL');
       } else {
         UniqueSnackbar.showError(
@@ -176,6 +179,9 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
       if (!mounted) return;
 
       if (success) {
+        FocusManager.instance.primaryFocus?.unfocus();
+        FocusScope.of(context).unfocus();
+        SystemChannels.textInput.invokeMethod('TextInput.hide');
         UniqueOtpV7Sheet.show(context, phone: formattedPhone, channel: 'PHONE');
       } else {
         UniqueSnackbar.showError(
@@ -194,20 +200,9 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
     return AppBackground(
       child: Scaffold(
         backgroundColor: AppColors.transparent,
-        appBar: AppBar(
-          backgroundColor: AppColors.transparent,
-          elevation: 0,
-          leading: IconButton(
-            icon: const Icon(
-              Icons.arrow_back_ios_new_rounded,
-              color: AppColors.textPrimary,
-            ),
-            onPressed: () => Get.back(),
-          ),
-        ),
         body: SafeArea(
           child: SingleChildScrollView(
-            padding: EdgeInsets.symmetric(horizontal: 24.w, vertical: 10.h),
+            padding: EdgeInsets.fromLTRB(24.w, 80.h, 24.w, 20.h),
             child: Obx(() {
               final isBusy = _authController.isLoading.value;
 
@@ -383,8 +378,8 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
                           ? 'Enter registered email address'
                           : 'Enter mobile number or email',
                       labelText: _isPasswordInputEmail
-                          ? 'Registered Email Address'
-                          : 'Mobile Number or Email',
+                          ? 'Registered Email Address *'
+                          : 'Mobile Number or Email *',
                       keyboardType: TextInputType.emailAddress,
                       onChanged: (_) => setState(() {}),
                       prefixIcon: _isPasswordInputEmail
@@ -416,7 +411,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
                     AppTextField(
                       controller: _passwordController,
                       hintText: 'Enter account password',
-                      labelText: 'Password',
+                      labelText: 'Password *',
                       obscureText: _obscurePassword,
                       prefixIcon: const Icon(
                         Icons.lock_outline_rounded,
@@ -450,8 +445,8 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
                           ? 'Enter registered email address'
                           : 'Enter mobile number or email',
                       labelText: _isOtpInputEmail
-                          ? 'Registered Email Address'
-                          : 'Mobile Number or Email',
+                          ? 'Registered Email Address *'
+                          : 'Mobile Number or Email *',
                       keyboardType: TextInputType.emailAddress,
                       onChanged: (_) => setState(() {}),
                       prefixIcon: _isOtpInputEmail

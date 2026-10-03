@@ -42,6 +42,43 @@ class AuthController extends GetxController {
     }
   }
 
+  /// 0. Standard Signup / Register
+  Future<bool> register({
+    required String identifier,
+    required String password,
+    String? name,
+  }) async {
+    try {
+      isLoading.value = true;
+      errorMessage.value = '';
+
+      final authData = await _repository.register(
+        identifier: identifier.trim(),
+        password: password,
+        name: name,
+      );
+
+      if (authData.tokens != null) {
+        await StorageService.saveTokens(authData.tokens!);
+      }
+      if (authData.user != null) {
+        await StorageService.saveUser(authData.user!);
+        currentUser.value = authData.user;
+      }
+      isLoggedIn.value = true;
+      syncAllAppData();
+      return true;
+    } on ApiException catch (e) {
+      errorMessage.value = e.message;
+      return false;
+    } catch (e) {
+      errorMessage.value = 'Failed to register account. Please try again.';
+      return false;
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
   /// 1. Login with Password (Email or Phone)
   Future<bool> loginWithPassword(String identifier, String password) async {
     try {
