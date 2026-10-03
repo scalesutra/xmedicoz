@@ -75,6 +75,8 @@ class UniqueOtpV7Sheet extends StatefulWidget {
 class _UniqueOtpV7SheetState extends State<UniqueOtpV7Sheet>
     with TickerProviderStateMixin {
   static const int _otpLength = 6;
+  final TextEditingController _masterController = TextEditingController();
+  final FocusNode _masterFocusNode = FocusNode();
   final List<TextEditingController> _controllers = List.generate(
     _otpLength,
     (_) => TextEditingController(),
@@ -200,21 +202,30 @@ class _UniqueOtpV7SheetState extends State<UniqueOtpV7Sheet>
       curve: const Interval(0.72, 0.92, curve: Curves.easeIn),
     );
 
-    // Track active focus
-    for (int i = 0; i < _otpLength; i++) {
-      final idx = i;
-      _focusNodes[idx].addListener(() {
-        if (_focusNodes[idx].hasFocus && mounted) {
-          setState(() {});
-        }
-      });
-    }
+    // Keep individual controllers and boxes in sync with master input
+    _masterController.addListener(() {
+      final code = _masterController.text;
+      for (int i = 0; i < _otpLength; i++) {
+        _controllers[i].text = i < code.length ? code[i] : '';
+      }
+      if (mounted) setState(() {});
+      if (code.length >= _otpLength && !_isVerifying && !_isAnimatingSequence) {
+        _masterFocusNode.unfocus();
+        _verifyEnteredOtp();
+      }
+    });
 
-    // Auto-focus and fast reactive auto-fill of OTP
+    _masterFocusNode.addListener(() {
+      if (mounted) setState(() {});
+    });
+
+    // Auto-focus after orbit settles
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         Future.delayed(const Duration(milliseconds: 600), () {
-          if (mounted) _focusNodes[0].requestFocus();
+          if (mounted && !_isAnimatingSequence) {
+            _masterFocusNode.requestFocus();
+          }
         });
         if (Get.isRegistered<AuthController>()) {
           final auth = Get.find<AuthController>();
@@ -244,25 +255,12 @@ class _UniqueOtpV7SheetState extends State<UniqueOtpV7Sheet>
 
   void _autoFillDevOtp(String otp) {
     if (_isAnimatingSequence || _isVerifying) return;
-    final clean = otp.replaceAll(RegExp(r'\D'), '');
-    if (clean.isEmpty) return;
+    if (_masterController.text.isNotEmpty) return;
 
-    for (int i = 0; i < _otpLength && i < clean.length; i++) {
-      final isLast = (i == _otpLength - 1) || (i == clean.length - 1);
-      Future.delayed(Duration(milliseconds: (i + 1) * 110), () {
-        if (!mounted) return;
-        _controllers[i].text = clean[i];
-        setState(() {});
-        if (isLast) {
-          FocusScope.of(context).unfocus();
-          Future.delayed(const Duration(milliseconds: 250), () {
-            if (mounted && !_isVerifying && !_isAnimatingSequence) {
-              _verifyEnteredOtp();
-            }
-          });
-        }
-      });
-    }
+    final clean = otp.replaceAll(RegExp(r'\D'), '');
+    if (clean.length < _otpLength) return;
+
+    _masterController.text = clean.substring(0, _otpLength);
   }
 
   @override
@@ -272,6 +270,8 @@ class _UniqueOtpV7SheetState extends State<UniqueOtpV7Sheet>
     _orbitController.dispose();
     _animController.dispose();
     _activePulseController.dispose();
+    _masterController.dispose();
+    _masterFocusNode.dispose();
     for (var c in _controllers) {
       c.dispose();
     }
@@ -281,48 +281,9 @@ class _UniqueOtpV7SheetState extends State<UniqueOtpV7Sheet>
     super.dispose();
   }
 
-  void _onDigitChanged(int index, String value) {
-    final clean = value.replaceAll(RegExp(r'\D'), '');
-    if (clean.length > 1) {
-      _handlePaste(clean);
-      return;
-    }
-
-    if (clean.isNotEmpty) {
-      _controllers[index].text = clean[0];
-      if (index < _otpLength - 1) {
-        _focusNodes[index + 1].requestFocus();
-      } else {
-        _focusNodes[index].unfocus();
-        _verifyEnteredOtp();
-      }
-    } else {
-      _controllers[index].clear();
-    }
-    setState(() {});
-  }
-
-  void _handlePaste(String raw) {
-    final clean = raw.replaceAll(RegExp(r'\D'), '');
-    for (int i = 0; i < _otpLength; i++) {
-      if (i < clean.length) {
-        _controllers[i].text = clean[i];
-      } else {
-        _controllers[i].clear();
-      }
-    }
-    setState(() {});
-    if (clean.length >= _otpLength) {
-      FocusScope.of(context).unfocus();
-      _verifyEnteredOtp();
-    } else {
-      _focusNodes[clean.length.clamp(0, _otpLength - 1)].requestFocus();
-    }
-  }
-
   Future<void> _verifyEnteredOtp() async {
     if (_isAnimatingSequence || _isVerifying) return;
-    final code = _controllers.map((c) => c.text.trim()).join();
+    final code = _masterController.text.trim();
     if (code.length < 4) return;
 
     setState(() => _isVerifying = true);
@@ -347,10 +308,11 @@ class _UniqueOtpV7SheetState extends State<UniqueOtpV7Sheet>
             ? authController.errorMessage.value
             : 'Invalid OTP code. Please try again.',
       );
+      _masterController.clear();
       for (var c in _controllers) {
         c.clear();
       }
-      _focusNodes[0].requestFocus();
+      _masterFocusNode.requestFocus();
       setState(() {});
     }
   }
@@ -359,8 +321,9 @@ class _UniqueOtpV7SheetState extends State<UniqueOtpV7Sheet>
     if (_isResending ||
         _isVerifying ||
         _isAnimatingSequence ||
-        _resendSeconds > 0)
+        _resendSeconds > 0) {
       return;
+    }
     setState(() => _isResending = true);
 
     final authController = Get.find<AuthController>();
@@ -380,10 +343,11 @@ class _UniqueOtpV7SheetState extends State<UniqueOtpV7Sheet>
         title: 'OTP Resent',
         message: 'A fresh 6-digit OTP has been sent to $target',
       );
+      _masterController.clear();
       for (var c in _controllers) {
         c.clear();
       }
-      _focusNodes[0].requestFocus();
+      _masterFocusNode.requestFocus();
       setState(() {});
     } else {
       UniqueSnackbar.showError(
@@ -646,6 +610,39 @@ class _UniqueOtpV7SheetState extends State<UniqueOtpV7Sheet>
                                         ? _buildMorphingBox(index)
                                         : _buildOrbitBox(index);
                                   }),
+
+                                // Master Transparent Input Overlay: Single stream input prevents out-of-order or reverse typing
+                                if (!_isAnimatingSequence && _orbitDone)
+                                  Positioned.fill(
+                                    child: GestureDetector(
+                                      behavior: HitTestBehavior.translucent,
+                                      onTap: () {
+                                        _masterFocusNode.requestFocus();
+                                      },
+                                      child: Opacity(
+                                        opacity: 0.0,
+                                        child: TextField(
+                                          controller: _masterController,
+                                          focusNode: _masterFocusNode,
+                                          keyboardType: TextInputType.number,
+                                          autofillHints: const [
+                                            AutofillHints.oneTimeCode,
+                                          ],
+                                          inputFormatters: [
+                                            FilteringTextInputFormatter.digitsOnly,
+                                            LengthLimitingTextInputFormatter(_otpLength),
+                                          ],
+                                          enableInteractiveSelection: false,
+                                          showCursor: false,
+                                          decoration: const InputDecoration(
+                                            border: InputBorder.none,
+                                            counterText: '',
+                                            contentPadding: EdgeInsets.zero,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
 
                                 // Layer 3: Central Emerald Green Checkmark Square (Phase 4 & 5)
                                 if (_successBoxScaleAnimation.value > 0.0)
@@ -925,8 +922,12 @@ class _UniqueOtpV7SheetState extends State<UniqueOtpV7Sheet>
 
     final double scale = (1.0 - _implosionAnimation.value).clamp(0.0, 1.0);
 
-    final bool isFocused = !_isAnimatingSequence && _focusNodes[index].hasFocus;
-    final bool hasValue = _controllers[index].text.isNotEmpty;
+    final int activeIdx =
+        _masterController.text.length.clamp(0, _otpLength - 1);
+    final bool isFocused = !_isAnimatingSequence &&
+        _masterFocusNode.hasFocus &&
+        (index == activeIdx);
+    final bool hasValue = index < _masterController.text.length;
 
     return Transform.translate(
       offset: Offset(finalX, finalY),
@@ -939,6 +940,10 @@ class _UniqueOtpV7SheetState extends State<UniqueOtpV7Sheet>
 
   // ─── Shared Box Container ───────────────────────────────────────────────────
   Widget _buildBoxContainer(int index, bool isFocused, bool hasValue) {
+    final digit = index < _masterController.text.length
+        ? _masterController.text[index]
+        : '';
+
     return Container(
       width: 44.w,
       height: 52.h,
@@ -965,49 +970,17 @@ class _UniqueOtpV7SheetState extends State<UniqueOtpV7Sheet>
               ]
             : null,
       ),
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          if (hasValue)
-            Text(
-              _controllers[index].text,
-              style: AppTypography.h1.copyWith(
-                color: AppColors.textPrimary,
-                fontSize: 22.sp,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          if (!_isAnimatingSequence && _orbitDone)
-            KeyboardListener(
-              focusNode: FocusNode(),
-              onKeyEvent: (event) {
-                if (event is KeyDownEvent &&
-                    event.logicalKey == LogicalKeyboardKey.backspace) {
-                  if (_controllers[index].text.isEmpty && index > 0) {
-                    _focusNodes[index - 1].requestFocus();
-                    _controllers[index - 1].clear();
-                    setState(() {});
-                  }
-                }
-              },
-              child: TextField(
-                controller: _controllers[index],
-                focusNode: _focusNodes[index],
-                keyboardType: TextInputType.number,
-                autofillHints: const [AutofillHints.oneTimeCode],
-                textAlign: TextAlign.center,
-                cursorColor: AppColors.transparent,
-                style: const TextStyle(color: AppColors.transparent),
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                decoration: const InputDecoration(
-                  counterText: '',
-                  border: InputBorder.none,
-                  contentPadding: EdgeInsets.zero,
+      child: Center(
+        child: hasValue
+            ? Text(
+                digit,
+                style: AppTypography.h1.copyWith(
+                  color: AppColors.textPrimary,
+                  fontSize: 22.sp,
+                  fontWeight: FontWeight.w700,
                 ),
-                onChanged: (val) => _onDigitChanged(index, val),
-              ),
-            ),
-        ],
+              )
+            : const SizedBox.shrink(),
       ),
     );
   }
