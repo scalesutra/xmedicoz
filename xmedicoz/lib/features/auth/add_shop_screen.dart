@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
 import '../../core/constants/app_strings.dart';
-import '../../core/models/models.dart';
 import '../../core/routes/app_routes.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_decorations.dart';
@@ -11,6 +10,7 @@ import '../../core/widgets/app_background.dart';
 import '../../core/widgets/app_button.dart';
 import '../../core/widgets/app_text_field.dart';
 import '../../core/widgets/unique_snackbar.dart';
+import '../../core/widgets/country_code_picker.dart';
 import 'controllers/auth_controller.dart';
 
 class AddShopScreen extends StatefulWidget {
@@ -32,6 +32,7 @@ class _AddShopScreenState extends State<AddShopScreen> {
   final TextEditingController _gstinCtrl = TextEditingController(); // Optional
   final TextEditingController _cashCtrl = TextEditingController();
   final TextEditingController _bankCtrl = TextEditingController();
+  Country _selectedCountry = CommonCountryCodePicker.defaultCountry;
 
   bool _isLoading = false;
 
@@ -54,8 +55,12 @@ class _AddShopScreenState extends State<AddShopScreen> {
     final name = _shopNameCtrl.text.trim();
     final ownerName = _ownerNameCtrl.text.trim();
     final phone = _phoneCtrl.text.trim();
+    final email = _emailCtrl.text.trim();
+    final password = _passwordCtrl.text;
     final city = _cityCtrl.text.trim();
     final dlNo = _dlCtrl.text.trim();
+    final cash = double.tryParse(_cashCtrl.text.trim());
+    final bank = double.tryParse(_bankCtrl.text.trim());
 
     if (name.isEmpty || ownerName.isEmpty || phone.isEmpty || city.isEmpty || dlNo.isEmpty) {
       UniqueSnackbar.showWarning(
@@ -70,14 +75,32 @@ class _AddShopScreenState extends State<AddShopScreen> {
 
     final authController = Get.find<AuthController>();
 
-    final shopData = {
+    // Update user profile with owner name and email if available
+    final cleanPhone = phone.replaceAll(RegExp(r'\D'), '');
+    final fullPhone =
+        phone.startsWith('+') ? phone : '+${_selectedCountry.phoneCode}$cleanPhone';
+
+    if (ownerName.isNotEmpty || email.isNotEmpty || password.isNotEmpty) {
+      await authController.updateProfile(
+        firstName: ownerName,
+        phone: fullPhone.isNotEmpty ? fullPhone : null,
+        email: email.isNotEmpty ? email : null,
+        password: password.isNotEmpty ? password : null,
+      );
+    }
+
+    final shopData = <String, dynamic>{
       "name": name,
       "ownerName": ownerName,
-      "phone": phone,
+      "phone": fullPhone,
       "city": city,
       "drugLicenseNo": dlNo.toUpperCase(),
       "gstin": _gstinCtrl.text.trim().isEmpty ? null : _gstinCtrl.text.trim().toUpperCase(),
-      "planCode": "TRIAL"
+      "planCode": "TRIAL",
+      if (email.isNotEmpty) "email": email,
+      if (password.isNotEmpty) "password": password,
+      if (cash != null && cash > 0) "openingCashBalance": cash,
+      if (bank != null && bank > 0) "openingBankBalance": bank,
     };
 
     final newShop = await authController.registerShop(shopData);
@@ -221,9 +244,12 @@ class _AddShopScreenState extends State<AddShopScreen> {
 
               AppTextField(
                 controller: _phoneCtrl,
-                hintText: '98201 54321',
+                hintText: 'Enter mobile number',
                 labelText: AppStrings.shopPhoneHint,
-                prefixIcon: const Icon(Icons.phone_rounded, color: AppColors.textSecondary),
+                prefixIcon: CommonCountryCodePicker(
+                  selectedCountry: _selectedCountry,
+                  onCountryChanged: (c) => setState(() => _selectedCountry = c),
+                ),
                 keyboardType: TextInputType.phone,
               ),
               SizedBox(height: 32.h),

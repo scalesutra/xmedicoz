@@ -92,20 +92,33 @@ class AuthController extends GetxController {
         purpose: purpose,
       );
 
-      // Check if backend returned the dev OTP in response
-      if (response['data'] != null && response['data'] is Map) {
+      // Check if backend returned the dev OTP in root or data
+      final topCode =
+          response['otp'] ?? response['code'] ?? response['devOtp'] ?? response['devCode'];
+      if (topCode != null) {
+        serverDevOtp.value = topCode.toString().trim();
+      }
+      if (serverDevOtp.isEmpty && response['data'] != null && response['data'] is Map) {
         final data = response['data'] as Map<String, dynamic>;
         final code =
-            data['code'] ?? data['otp'] ?? data['devCode'] ?? data['devOtp'];
+            data['code'] ??
+            data['otp'] ??
+            data['devCode'] ??
+            data['devOtp'] ??
+            data['otpCode'] ??
+            data['verificationCode'];
         if (code != null) {
           serverDevOtp.value = code.toString().trim();
         }
       }
       if (serverDevOtp.isEmpty && response['message'] != null) {
         final msg = response['message'].toString();
-        final match = RegExp(r'\b\d{4}\b').firstMatch(msg);
-        if (match != null) {
-          serverDevOtp.value = match.group(0)!;
+        final match6 = RegExp(r'\b\d{6}\b').firstMatch(msg);
+        final match4 = RegExp(r'\b\d{4}\b').firstMatch(msg);
+        if (match6 != null) {
+          serverDevOtp.value = match6.group(0)!;
+        } else if (match4 != null) {
+          serverDevOtp.value = match4.group(0)!;
         }
       }
 
@@ -218,6 +231,30 @@ class AuthController extends GetxController {
       currentUser.value = user;
       await StorageService.saveUser(user);
     } catch (_) {}
+  }
+
+  /// Update User Profile
+  Future<bool> updateProfile({
+    String? firstName,
+    String? lastName,
+    String? phone,
+    String? email,
+    String? password,
+  }) async {
+    try {
+      final updated = await _repository.updateProfile(
+        firstName: firstName,
+        lastName: lastName,
+        phone: phone,
+        email: email,
+        password: password,
+      );
+      currentUser.value = updated;
+      await StorageService.saveUser(updated);
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   /// Triggers full sync across inventory, ledger, sales, purchases, and accounting

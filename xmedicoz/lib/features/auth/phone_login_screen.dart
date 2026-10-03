@@ -13,6 +13,7 @@ import '../../core/widgets/app_button.dart';
 import '../../core/widgets/app_text_field.dart';
 import '../../core/widgets/unique_otp_v7_sheet.dart';
 import '../../core/widgets/unique_snackbar.dart';
+import '../../core/widgets/country_code_picker.dart';
 import 'controllers/auth_controller.dart';
 
 class PhoneLoginScreen extends StatefulWidget {
@@ -32,9 +33,20 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
   bool _obscurePassword = true;
 
   // Controller for OTP Login
-  final TextEditingController _phoneController = TextEditingController();
-  final TextEditingController _otpEmailController = TextEditingController();
-  String _otpChannel = 'PHONE'; // 'PHONE' or 'EMAIL'
+  final TextEditingController _otpIdentifierController = TextEditingController();
+  Country _selectedCountry = CommonCountryCodePicker.defaultCountry;
+
+  bool get _isPasswordInputEmail {
+    final text = _identifierController.text.trim();
+    if (text.isEmpty) return false;
+    return text.contains('@') || RegExp(r'[a-zA-Z]').hasMatch(text);
+  }
+
+  bool get _isOtpInputEmail {
+    final text = _otpIdentifierController.text.trim();
+    if (text.isEmpty) return false;
+    return text.contains('@') || RegExp(r'[a-zA-Z]').hasMatch(text);
+  }
 
   final AuthController _authController = Get.find<AuthController>();
 
@@ -42,39 +54,19 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
   void dispose() {
     _identifierController.dispose();
     _passwordController.dispose();
-    _phoneController.dispose();
-    _otpEmailController.dispose();
+    _otpIdentifierController.dispose();
     super.dispose();
   }
 
-  void _prefillTestAdmin() {
-    HapticFeedback.lightImpact();
-    _selectedTab = 0;
-    _identifierController.text = 'admin@medicalcrm.local';
-    _passwordController.text = 'Admin@MedicalCRM123';
-    _identifierController.selection = TextSelection.fromPosition(
-      TextPosition(offset: _identifierController.text.length),
-    );
-    _passwordController.selection = TextSelection.fromPosition(
-      TextPosition(offset: _passwordController.text.length),
-    );
-    if (mounted) setState(() {});
-    UniqueSnackbar.showSuccess(
-      context,
-      title: 'Admin Credentials',
-      message: 'Test credentials filled successfully.',
-    );
-  }
-
   Future<void> _handlePasswordLogin() async {
-    final identifier = _identifierController.text.trim();
+    final rawInput = _identifierController.text.trim();
     final password = _passwordController.text;
 
-    if (identifier.isEmpty) {
+    if (rawInput.isEmpty) {
       UniqueSnackbar.showWarning(
         context,
         title: 'Identifier Required',
-        message: 'Please enter your email or phone number.',
+        message: 'Please enter your mobile number or email address.',
       );
       return;
     }
@@ -87,14 +79,28 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
       return;
     }
 
-    final success = await _authController.loginWithPassword(identifier, password);
+    final String identifier;
+    if (_isPasswordInputEmail) {
+      identifier = rawInput;
+    } else {
+      final clean = rawInput.replaceAll(RegExp(r'\D'), '');
+      identifier = rawInput.startsWith('+')
+          ? rawInput
+          : '+${_selectedCountry.phoneCode}$clean';
+    }
+
+    final success = await _authController.loginWithPassword(
+      identifier,
+      password,
+    );
     if (!mounted) return;
 
     if (success) {
       UniqueSnackbar.showSuccess(
         context,
         title: 'Login Successful',
-        message: 'Welcome back to ${_authController.currentUser.value?.firstName ?? 'XMedicoz'}!',
+        message:
+            'Welcome back to ${_authController.currentUser.value?.firstName ?? 'XMedicoz'}!',
       );
       Get.offAllNamed(AppRoutes.main);
     } else {
@@ -109,31 +115,36 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
   }
 
   Future<void> _handleSendOtp() async {
-    if (_otpChannel == 'PHONE') {
-      final phone = _phoneController.text.trim();
-      if (phone.length < 10) {
+    final rawInput = _otpIdentifierController.text.trim();
+    if (rawInput.isEmpty) {
+      UniqueSnackbar.showWarning(
+        context,
+        title: 'Identifier Required',
+        message: 'Please enter your mobile number or registered email address.',
+      );
+      return;
+    }
+
+    if (_isOtpInputEmail) {
+      if (!GetUtils.isEmail(rawInput)) {
         UniqueSnackbar.showWarning(
           context,
-          title: 'Invalid Mobile Number',
-          message: 'Please enter a valid 10-digit mobile number.',
+          title: 'Invalid Email Address',
+          message:
+              'Please enter a valid email address (e.g. chemist@gmail.com).',
         );
         return;
       }
 
-      final formattedPhone = phone.startsWith('+91') ? phone : '+91$phone';
       final success = await _authController.requestOtp(
-        formattedPhone,
-        channel: 'PHONE',
+        rawInput,
+        channel: 'EMAIL',
       );
 
       if (!mounted) return;
 
       if (success) {
-        UniqueOtpV7Sheet.show(
-          context,
-          phone: formattedPhone,
-          channel: 'PHONE',
-        );
+        UniqueOtpV7Sheet.show(context, phone: rawInput, channel: 'EMAIL');
       } else {
         UniqueSnackbar.showError(
           context,
@@ -144,29 +155,28 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
         );
       }
     } else {
-      final email = _otpEmailController.text.trim();
-      if (email.isEmpty || !GetUtils.isEmail(email)) {
+      final cleanPhone = rawInput.replaceAll(RegExp(r'\D'), '');
+      if (cleanPhone.length < 5) {
         UniqueSnackbar.showWarning(
           context,
-          title: 'Invalid Email Address',
-          message: 'Please enter a valid email address (e.g. chemist@gmail.com).',
+          title: 'Invalid Mobile Number',
+          message: 'Please enter a valid mobile number.',
         );
         return;
       }
 
+      final formattedPhone = rawInput.startsWith('+')
+          ? rawInput
+          : '+${_selectedCountry.phoneCode}$cleanPhone';
       final success = await _authController.requestOtp(
-        email,
-        channel: 'EMAIL',
+        formattedPhone,
+        channel: 'PHONE',
       );
 
       if (!mounted) return;
 
       if (success) {
-        UniqueOtpV7Sheet.show(
-          context,
-          phone: email,
-          channel: 'EMAIL',
-        );
+        UniqueOtpV7Sheet.show(context, phone: formattedPhone, channel: 'PHONE');
       } else {
         UniqueSnackbar.showError(
           context,
@@ -205,84 +215,50 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   // App Icon Badge
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Container(
-                        width: 60.r,
-                        height: 60.r,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(AppDecorations.radiusLg),
-                          border: Border.all(
-                            color: AppColors.primaryEmerald.withValues(alpha: 0.35),
-                            width: 1.5.w,
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: AppColors.primaryEmerald.withValues(alpha: 0.25),
-                              blurRadius: 16.r,
-                              offset: const Offset(0, 4),
-                            ),
-                          ],
-                        ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(AppDecorations.radiusLg - 1.5),
-                          child: Image.asset(
-                            AppAssets.appIcon,
-                            fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) {
-                              return Container(
-                                decoration: const BoxDecoration(
-                                  gradient: AppColors.primaryGradient,
-                                ),
-                                child: Center(
-                                  child: Icon(
-                                    Icons.local_pharmacy_rounded,
-                                    color: AppColors.white,
-                                    size: 30.sp,
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
-                        ),
+                  Container(
+                    width: 60.r,
+                    height: 60.r,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(
+                        AppDecorations.radiusLg,
                       ),
-                      // Quick Test Admin Fill button
-                      if (_selectedTab == 0)
-                        InkWell(
-                          onTap: _prefillTestAdmin,
-                          borderRadius: BorderRadius.circular(AppDecorations.radiusPill),
-                          child: Container(
-                            padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 6.h),
-                            decoration: BoxDecoration(
-                              color: AppColors.primaryEmerald.withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(AppDecorations.radiusPill),
-                              border: Border.all(
-                                color: AppColors.primaryEmerald.withValues(alpha: 0.35),
+                      border: Border.all(
+                        color: AppColors.primaryEmerald.withValues(alpha: 0.35),
+                        width: 1.5.w,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: AppColors.primaryEmerald.withValues(
+                            alpha: 0.25,
+                          ),
+                          blurRadius: 16.r,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(
+                        AppDecorations.radiusLg - 1.5,
+                      ),
+                      child: Image.asset(
+                        AppAssets.appIcon,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) {
+                          return Container(
+                            decoration: const BoxDecoration(
+                              gradient: AppColors.primaryGradient,
+                            ),
+                            child: Center(
+                              child: Icon(
+                                Icons.local_pharmacy_rounded,
+                                color: AppColors.white,
+                                size: 30.sp,
                               ),
                             ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  Icons.flash_on_rounded,
-                                  color: AppColors.primaryEmerald,
-                                  size: 14.sp,
-                                ),
-                                SizedBox(width: 4.w),
-                                Text(
-                                  'Fill Test Admin',
-                                  style: TextStyle(
-                                    color: AppColors.primaryEmerald,
-                                    fontSize: 11.sp,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                    ],
+                          );
+                        },
+                      ),
+                    ),
                   ),
 
                   SizedBox(height: 18.h),
@@ -290,7 +266,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
                   Text(AppStrings.loginTitle, style: AppTypography.h1),
                   SizedBox(height: 6.h),
                   Text(
-                    'Access your Medical Store CRM & Autonomous Daybook',
+                    'Access your Medical Store CRM',
                     style: AppTypography.bodyMedium,
                   ),
 
@@ -302,7 +278,9 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
                     padding: EdgeInsets.all(3.r),
                     decoration: BoxDecoration(
                       color: AppColors.bgCard,
-                      borderRadius: BorderRadius.circular(AppDecorations.radiusMd),
+                      borderRadius: BorderRadius.circular(
+                        AppDecorations.radiusMd,
+                      ),
                       border: Border.all(color: AppColors.borderSubtle),
                     ),
                     child: Row(
@@ -310,14 +288,18 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
                         Expanded(
                           child: InkWell(
                             onTap: () => setState(() => _selectedTab = 0),
-                            borderRadius: BorderRadius.circular(AppDecorations.radiusMd - 2),
+                            borderRadius: BorderRadius.circular(
+                              AppDecorations.radiusMd - 2,
+                            ),
                             child: Container(
                               alignment: Alignment.center,
                               decoration: BoxDecoration(
                                 color: _selectedTab == 0
                                     ? AppColors.primaryEmerald
                                     : AppColors.transparent,
-                                borderRadius: BorderRadius.circular(AppDecorations.radiusMd - 2),
+                                borderRadius: BorderRadius.circular(
+                                  AppDecorations.radiusMd - 2,
+                                ),
                               ),
                               child: Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
@@ -348,14 +330,18 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
                         Expanded(
                           child: InkWell(
                             onTap: () => setState(() => _selectedTab = 1),
-                            borderRadius: BorderRadius.circular(AppDecorations.radiusMd - 2),
+                            borderRadius: BorderRadius.circular(
+                              AppDecorations.radiusMd - 2,
+                            ),
                             child: Container(
                               alignment: Alignment.center,
                               decoration: BoxDecoration(
                                 color: _selectedTab == 1
                                     ? AppColors.primaryEmerald
                                     : AppColors.transparent,
-                                borderRadius: BorderRadius.circular(AppDecorations.radiusMd - 2),
+                                borderRadius: BorderRadius.circular(
+                                  AppDecorations.radiusMd - 2,
+                                ),
                               ),
                               child: Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
@@ -389,16 +375,42 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
 
                   SizedBox(height: 24.h),
 
-                  // TAB 0: Password Login View
+                  // TAB 0: Password Login View (Smart Auto-Detecting Phone vs Email)
                   if (_selectedTab == 0) ...[
                     AppTextField(
                       controller: _identifierController,
-                      hintText: 'admin@xmedicoz.com or +91 98765 43210',
-                      labelText: 'Email or Mobile Number',
-                      prefixIcon: const Icon(
-                        Icons.person_outline_rounded,
-                        color: AppColors.textSecondary,
-                      ),
+                      hintText: _isPasswordInputEmail
+                          ? 'Enter registered email address'
+                          : 'Enter mobile number or email',
+                      labelText: _isPasswordInputEmail
+                          ? 'Registered Email Address'
+                          : 'Mobile Number or Email',
+                      keyboardType: TextInputType.emailAddress,
+                      onChanged: (_) => setState(() {}),
+                      prefixIcon: _isPasswordInputEmail
+                          ? const Icon(
+                              Icons.email_outlined,
+                              color: AppColors.primaryEmerald,
+                            )
+                          : CommonCountryCodePicker(
+                              selectedCountry: _selectedCountry,
+                              onCountryChanged: (c) =>
+                                  setState(() => _selectedCountry = c),
+                            ),
+                      suffixIcon: _identifierController.text.isNotEmpty
+                          ? IconButton(
+                              icon: Icon(
+                                Icons.close_rounded,
+                                color: AppColors.textMuted,
+                                size: 18.sp,
+                              ),
+                              onPressed: () {
+                                setState(() {
+                                  _identifierController.clear();
+                                });
+                              },
+                            )
+                          : null,
                     ),
                     SizedBox(height: 16.h),
                     AppTextField(
@@ -418,8 +430,9 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
                           color: AppColors.textSecondary,
                           size: 20.sp,
                         ),
-                        onPressed: () =>
-                            setState(() => _obscurePassword = !_obscurePassword),
+                        onPressed: () => setState(
+                          () => _obscurePassword = !_obscurePassword,
+                        ),
                       ),
                     ),
                     SizedBox(height: 24.h),
@@ -430,146 +443,50 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
                       onPressed: _handlePasswordLogin,
                     ),
                   ] else ...[
-                    // TAB 1: OTP Login View (Mobile or Email)
-                    Container(
-                      height: 38.h,
-                      margin: EdgeInsets.only(bottom: 16.h),
-                      padding: EdgeInsets.all(2.5.r),
-                      decoration: BoxDecoration(
-                        color: AppColors.bgCard,
-                        borderRadius: BorderRadius.circular(AppDecorations.radiusSm),
-                        border: Border.all(color: AppColors.borderSubtle),
-                      ),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: InkWell(
-                              onTap: () => setState(() => _otpChannel = 'PHONE'),
-                              borderRadius: BorderRadius.circular(AppDecorations.radiusSm - 2),
-                              child: Container(
-                                alignment: Alignment.center,
-                                decoration: BoxDecoration(
-                                  color: _otpChannel == 'PHONE'
-                                      ? AppColors.primaryEmerald.withValues(alpha: 0.18)
-                                      : AppColors.transparent,
-                                  borderRadius: BorderRadius.circular(AppDecorations.radiusSm - 2),
-                                  border: Border.all(
-                                    color: _otpChannel == 'PHONE'
-                                        ? AppColors.primaryEmerald
-                                        : AppColors.transparent,
-                                    width: 1,
-                                  ),
-                                ),
-                                child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(
-                                      Icons.phone_android_rounded,
-                                      size: 13.sp,
-                                      color: _otpChannel == 'PHONE'
-                                          ? AppColors.primaryEmerald
-                                          : AppColors.textSecondary,
-                                    ),
-                                    SizedBox(width: 4.w),
-                                    Text(
-                                      'Mobile OTP',
-                                      style: TextStyle(
-                                        color: _otpChannel == 'PHONE'
-                                            ? AppColors.primaryEmerald
-                                            : AppColors.textSecondary,
-                                        fontWeight: _otpChannel == 'PHONE'
-                                            ? FontWeight.w700
-                                            : FontWeight.w500,
-                                        fontSize: 11.5.sp,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
+                    // TAB 1: OTP Login View (Smart Auto-Detecting Phone vs Email)
+                    AppTextField(
+                      controller: _otpIdentifierController,
+                      hintText: _isOtpInputEmail
+                          ? 'Enter registered email address'
+                          : 'Enter mobile number or email',
+                      labelText: _isOtpInputEmail
+                          ? 'Registered Email Address'
+                          : 'Mobile Number or Email',
+                      keyboardType: TextInputType.emailAddress,
+                      onChanged: (_) => setState(() {}),
+                      prefixIcon: _isOtpInputEmail
+                          ? const Icon(
+                              Icons.email_outlined,
+                              color: AppColors.primaryEmerald,
+                            )
+                          : CommonCountryCodePicker(
+                              selectedCountry: _selectedCountry,
+                              onCountryChanged: (c) =>
+                                  setState(() => _selectedCountry = c),
                             ),
-                          ),
-                          Expanded(
-                            child: InkWell(
-                              onTap: () => setState(() => _otpChannel = 'EMAIL'),
-                              borderRadius: BorderRadius.circular(AppDecorations.radiusSm - 2),
-                              child: Container(
-                                alignment: Alignment.center,
-                                decoration: BoxDecoration(
-                                  color: _otpChannel == 'EMAIL'
-                                      ? AppColors.primaryEmerald.withValues(alpha: 0.18)
-                                      : AppColors.transparent,
-                                  borderRadius: BorderRadius.circular(AppDecorations.radiusSm - 2),
-                                  border: Border.all(
-                                    color: _otpChannel == 'EMAIL'
-                                        ? AppColors.primaryEmerald
-                                        : AppColors.transparent,
-                                    width: 1,
-                                  ),
-                                ),
-                                child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(
-                                      Icons.email_outlined,
-                                      size: 13.sp,
-                                      color: _otpChannel == 'EMAIL'
-                                          ? AppColors.primaryEmerald
-                                          : AppColors.textSecondary,
-                                    ),
-                                    SizedBox(width: 4.w),
-                                    Text(
-                                      'Email OTP',
-                                      style: TextStyle(
-                                        color: _otpChannel == 'EMAIL'
-                                            ? AppColors.primaryEmerald
-                                            : AppColors.textSecondary,
-                                        fontWeight: _otpChannel == 'EMAIL'
-                                            ? FontWeight.w700
-                                            : FontWeight.w500,
-                                        fontSize: 11.5.sp,
-                                      ),
-                                    ),
-                                  ],
-                                ),
+                      suffixIcon: _otpIdentifierController.text.isNotEmpty
+                          ? IconButton(
+                              icon: Icon(
+                                Icons.close_rounded,
+                                color: AppColors.textMuted,
+                                size: 18.sp,
                               ),
-                            ),
-                          ),
-                        ],
-                      ),
+                              onPressed: () {
+                                setState(() {
+                                  _otpIdentifierController.clear();
+                                });
+                              },
+                            )
+                          : null,
                     ),
-                    if (_otpChannel == 'PHONE')
-                      AppTextField(
-                        controller: _phoneController,
-                        hintText: 'Enter 10-digit number',
-                        labelText: AppStrings.phoneHint,
-                        prefixText: AppStrings.phonePrefix,
-                        keyboardType: TextInputType.phone,
-                        inputFormatters: [
-                          FilteringTextInputFormatter.digitsOnly,
-                          LengthLimitingTextInputFormatter(10),
-                        ],
-                        prefixIcon: const Icon(
-                          Icons.call_rounded,
-                          color: AppColors.textSecondary,
-                        ),
-                      )
-                    else
-                      AppTextField(
-                        controller: _otpEmailController,
-                        hintText: 'chemist@xmedicoz.com',
-                        labelText: 'Registered Email Address',
-                        keyboardType: TextInputType.emailAddress,
-                        prefixIcon: const Icon(
-                          Icons.email_outlined,
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
                     SizedBox(height: 24.h),
                     AppButton(
-                      title: _otpChannel == 'EMAIL'
-                          ? 'Send 4-Digit Email OTP'
-                          : AppStrings.sendOtp,
-                      icon: Icons.send_rounded,
+                      title: _isOtpInputEmail
+                          ? 'Send Email OTP'
+                          : 'Send Mobile OTP',
+                      icon: _isOtpInputEmail
+                          ? Icons.mark_email_read_rounded
+                          : Icons.sms_rounded,
                       isLoading: isBusy,
                       onPressed: _handleSendOtp,
                     ),
@@ -582,7 +499,9 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
                     padding: EdgeInsets.all(14.r),
                     decoration: BoxDecoration(
                       color: AppColors.bgCard,
-                      borderRadius: BorderRadius.circular(AppDecorations.radiusMd),
+                      borderRadius: BorderRadius.circular(
+                        AppDecorations.radiusMd,
+                      ),
                       border: Border.all(color: AppColors.borderSubtle),
                     ),
                     child: Row(
@@ -595,7 +514,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
                         SizedBox(width: 12.w),
                         Expanded(
                           child: Text(
-                            'Connected to Medical CRM Server (AES-256 Auth & Keycloak Tokens).',
+                            'Connected to Medical CRM.',
                             style: AppTypography.bodySmall,
                           ),
                         ),
@@ -605,12 +524,12 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
 
                   SizedBox(height: 16.h),
 
-
-
                   Center(
                     child: Text(
                       AppStrings.termsNotice,
-                      style: AppTypography.bodySmall.copyWith(fontSize: 10.5.sp),
+                      style: AppTypography.bodySmall.copyWith(
+                        fontSize: 10.5.sp,
+                      ),
                       textAlign: TextAlign.center,
                     ),
                   ),

@@ -35,23 +35,23 @@ class AppStrings {
   static const String referralCodeHint = 'Referral Code (Optional)';
   static const String selectCategoryLabel = 'Select Pharmacy Store Type:';
   static const String otpTitle = 'Verify Mobile Number';
-  static const String otpSubtitle = 'Enter the 4-digit code sent to';
+  static const String otpSubtitle = 'Enter the 6-digit code sent to';
   static const String verifyOtp = 'Verify & Open Medical Store';
   static const String resendOtp = 'Resend Code in';
   static const String resendNow = 'Resend Code Now';
   static const String otpVerifiedSuccess = 'Verified Successfully!';
   static const String otpEnteringWorkspace =
       'Redirecting to pharmacy ledger...';
-  static const String otpAutoFillDemo = 'Auto-fill SMS Code (7492)';
+  static const String otpAutoFillDemo = 'Auto-fill SMS Code (749281)';
   static const String otpInvalidCode =
-      'Invalid code. Enter 7492 or any 4 digits.';
+      'Invalid code. Enter any 6 digits.';
   static const String changePhone = 'Change';
   static const String otpVersionBadge = 'PHARMA OTP SECURE V7';
   static const String otpV7TopTitle = 'Pharma OTP Verification';
   static const String otpV7TopVersion = 'V7';
   static const String otpV7Title = "Verify Pharmacist Mobile";
   static const String otpV7Subtitle =
-      "We've sent a 4-digit code to your phone.\nIt'll auto-verify once entered.";
+      "We've sent a 6-digit code to your phone.\nIt'll auto-verify once entered.";
   static const String otpV7SuccessTitle = 'Store Verified Successfully';
   static const String otpV7SuccessSubtitle =
       'Your pharmacy account is now active.';

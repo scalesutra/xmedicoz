@@ -142,11 +142,15 @@ class AuthRepository {
     String? firstName,
     String? lastName,
     String? phone,
+    String? email,
+    String? password,
   }) async {
     final body = <String, dynamic>{};
     if (firstName != null) body['firstName'] = firstName;
     if (lastName != null) body['lastName'] = lastName;
     if (phone != null) body['phone'] = phone;
+    if (email != null) body['email'] = email;
+    if (password != null && password.isNotEmpty) body['password'] = password;
 
     final response = await _apiClient.patch(
       ApiConstants.profile,

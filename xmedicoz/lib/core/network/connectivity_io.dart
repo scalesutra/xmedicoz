@@ -9,9 +9,9 @@ Future<bool> checkInternetIO() async {
       return true;
     }
   } catch (_) {
-    // DNS lookup failed, try reaching server directly by IP
+    // DNS lookup failed, try reaching server directly
     try {
-      final socket = await Socket.connect('134.195.138.153', 5095,
+      final socket = await Socket.connect('xmedicoz.com', 443,
           timeout: const Duration(seconds: 4));
       socket.destroy();
       return true;

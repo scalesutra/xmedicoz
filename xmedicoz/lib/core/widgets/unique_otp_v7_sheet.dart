@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
@@ -42,19 +43,26 @@ class UniqueOtpV7Sheet extends StatefulWidget {
     String channel = 'PHONE',
     VoidCallback? onSuccess,
   }) {
+    final screenWidth = MediaQuery.of(context).size.width;
     return showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       enableDrag: true,
       backgroundColor: AppColors.transparent,
-      builder: (_) => ConstrainedBox(
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(context).size.height * 0.90,
-        ),
-        child: UniqueOtpV7Sheet(
-          phone: phone,
-          channel: channel,
-          onSuccess: onSuccess,
+      constraints: BoxConstraints(minWidth: screenWidth, maxWidth: screenWidth),
+      builder: (_) => SizedBox(
+        width: screenWidth,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            minWidth: screenWidth,
+            maxWidth: screenWidth,
+            maxHeight: MediaQuery.of(context).size.height * 0.90,
+          ),
+          child: UniqueOtpV7Sheet(
+            phone: phone,
+            channel: channel,
+            onSuccess: onSuccess,
+          ),
         ),
       ),
     );
@@ -66,7 +74,7 @@ class UniqueOtpV7Sheet extends StatefulWidget {
 
 class _UniqueOtpV7SheetState extends State<UniqueOtpV7Sheet>
     with TickerProviderStateMixin {
-  static const int _otpLength = 4;
+  static const int _otpLength = 6;
   final List<TextEditingController> _controllers = List.generate(
     _otpLength,
     (_) => TextEditingController(),
@@ -75,6 +83,11 @@ class _UniqueOtpV7SheetState extends State<UniqueOtpV7Sheet>
     _otpLength,
     (_) => FocusNode(),
   );
+
+  // ─── Orbit Entry ─────────────────────────────────────────────────────────
+  late final AnimationController _orbitController;
+  late final Animation<double> _orbitProgress;
+  bool _orbitDone = false;
 
   // Master Animation Controller for the entire Version 7 sequence
   late final AnimationController _animController;
@@ -102,10 +115,43 @@ class _UniqueOtpV7SheetState extends State<UniqueOtpV7Sheet>
   bool _isAnimatingSequence = false;
   bool _isVerifying = false;
   bool _isResending = false;
+  Worker? _devOtpWorker;
+  Timer? _resendTimer;
+  int _resendSeconds = 30;
+
+  void _startResendTimer() {
+    _resendTimer?.cancel();
+    setState(() => _resendSeconds = 30);
+    _resendTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      if (_resendSeconds > 0) {
+        setState(() => _resendSeconds--);
+      } else {
+        timer.cancel();
+      }
+    });
+  }
 
   @override
   void initState() {
     super.initState();
+    _startResendTimer();
+
+    // ── Orbit Entry Animation ─────────────────────────────────────────────
+    _orbitController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1600),
+    );
+    _orbitProgress = CurvedAnimation(
+      parent: _orbitController,
+      curve: Curves.easeInOutCubic,
+    );
+    _orbitController.forward().then((_) {
+      if (mounted) setState(() => _orbitDone = true);
+    });
 
     // Pulse glow on active box
     _activePulseController = AnimationController(
@@ -164,19 +210,33 @@ class _UniqueOtpV7SheetState extends State<UniqueOtpV7Sheet>
       });
     }
 
-    // Auto-focus first box on presentation and autofill dev OTP if received
+    // Auto-focus and fast reactive auto-fill of OTP
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
-        _focusNodes[0].requestFocus();
+        Future.delayed(const Duration(milliseconds: 600), () {
+          if (mounted) _focusNodes[0].requestFocus();
+        });
         if (Get.isRegistered<AuthController>()) {
           final auth = Get.find<AuthController>();
           if (auth.serverDevOtp.value.isNotEmpty) {
-            Future.delayed(const Duration(milliseconds: 600), () {
+            Future.delayed(const Duration(milliseconds: 500), () {
               if (mounted && !_isAnimatingSequence && !_isVerifying) {
                 _autoFillDevOtp(auth.serverDevOtp.value);
               }
             });
           }
+          _devOtpWorker = ever<String>(auth.serverDevOtp, (code) {
+            if (code.isNotEmpty &&
+                mounted &&
+                !_isAnimatingSequence &&
+                !_isVerifying) {
+              Future.delayed(const Duration(milliseconds: 300), () {
+                if (mounted && !_isAnimatingSequence && !_isVerifying) {
+                  _autoFillDevOtp(code);
+                }
+              });
+            }
+          });
         }
       }
     });
@@ -185,15 +245,20 @@ class _UniqueOtpV7SheetState extends State<UniqueOtpV7Sheet>
   void _autoFillDevOtp(String otp) {
     if (_isAnimatingSequence || _isVerifying) return;
     final clean = otp.replaceAll(RegExp(r'\D'), '');
+    if (clean.isEmpty) return;
+
     for (int i = 0; i < _otpLength && i < clean.length; i++) {
-      Future.delayed(Duration(milliseconds: (i + 1) * 140), () {
+      final isLast = (i == _otpLength - 1) || (i == clean.length - 1);
+      Future.delayed(Duration(milliseconds: (i + 1) * 110), () {
         if (!mounted) return;
         _controllers[i].text = clean[i];
         setState(() {});
-        if (i == _otpLength - 1) {
+        if (isLast) {
           FocusScope.of(context).unfocus();
-          Future.delayed(const Duration(milliseconds: 200), () {
-            if (mounted) _verifyEnteredOtp();
+          Future.delayed(const Duration(milliseconds: 250), () {
+            if (mounted && !_isVerifying && !_isAnimatingSequence) {
+              _verifyEnteredOtp();
+            }
           });
         }
       });
@@ -202,6 +267,9 @@ class _UniqueOtpV7SheetState extends State<UniqueOtpV7Sheet>
 
   @override
   void dispose() {
+    _resendTimer?.cancel();
+    _devOtpWorker?.dispose();
+    _orbitController.dispose();
     _animController.dispose();
     _activePulseController.dispose();
     for (var c in _controllers) {
@@ -214,18 +282,22 @@ class _UniqueOtpV7SheetState extends State<UniqueOtpV7Sheet>
   }
 
   void _onDigitChanged(int index, String value) {
-    if (value.length > 1) {
-      _handlePaste(value);
+    final clean = value.replaceAll(RegExp(r'\D'), '');
+    if (clean.length > 1) {
+      _handlePaste(clean);
       return;
     }
 
-    if (value.isNotEmpty) {
+    if (clean.isNotEmpty) {
+      _controllers[index].text = clean[0];
       if (index < _otpLength - 1) {
         _focusNodes[index + 1].requestFocus();
       } else {
         _focusNodes[index].unfocus();
         _verifyEnteredOtp();
       }
+    } else {
+      _controllers[index].clear();
     }
     setState(() {});
   }
@@ -251,7 +323,7 @@ class _UniqueOtpV7SheetState extends State<UniqueOtpV7Sheet>
   Future<void> _verifyEnteredOtp() async {
     if (_isAnimatingSequence || _isVerifying) return;
     final code = _controllers.map((c) => c.text.trim()).join();
-    if (code.length < _otpLength) return;
+    if (code.length < 4) return;
 
     setState(() => _isVerifying = true);
 
@@ -265,6 +337,7 @@ class _UniqueOtpV7SheetState extends State<UniqueOtpV7Sheet>
     setState(() => _isVerifying = false);
 
     if (success) {
+      TextInput.finishAutofillContext();
       _startVersion7Sequence();
     } else {
       UniqueSnackbar.showError(
@@ -283,7 +356,11 @@ class _UniqueOtpV7SheetState extends State<UniqueOtpV7Sheet>
   }
 
   Future<void> _handleResend() async {
-    if (_isResending || _isVerifying || _isAnimatingSequence) return;
+    if (_isResending ||
+        _isVerifying ||
+        _isAnimatingSequence ||
+        _resendSeconds > 0)
+      return;
     setState(() => _isResending = true);
 
     final authController = Get.find<AuthController>();
@@ -296,11 +373,12 @@ class _UniqueOtpV7SheetState extends State<UniqueOtpV7Sheet>
     setState(() => _isResending = false);
 
     if (success) {
+      _startResendTimer();
       final target = widget.channel == 'EMAIL' ? 'your email' : widget.phone;
       UniqueSnackbar.showSuccess(
         context,
         title: 'OTP Resent',
-        message: 'A fresh 4-digit OTP has been sent to $target',
+        message: 'A fresh 6-digit OTP has been sent to $target',
       );
       for (var c in _controllers) {
         c.clear();
@@ -320,7 +398,10 @@ class _UniqueOtpV7SheetState extends State<UniqueOtpV7Sheet>
 
   void _startVersion7Sequence() {
     if (_isAnimatingSequence) return;
-    setState(() => _isAnimatingSequence = true);
+    setState(() {
+      _orbitDone = true;
+      _isAnimatingSequence = true;
+    });
 
     _animController.forward(from: 0.0).then((_) {
       Future.delayed(const Duration(milliseconds: 1200), () {
@@ -349,6 +430,7 @@ class _UniqueOtpV7SheetState extends State<UniqueOtpV7Sheet>
         FocusScope.of(context).unfocus();
       },
       child: Container(
+        width: double.infinity,
         decoration: BoxDecoration(
           color: AppColors.bgSurface,
           borderRadius: BorderRadius.vertical(top: Radius.circular(32.r)),
@@ -400,358 +482,372 @@ class _UniqueOtpV7SheetState extends State<UniqueOtpV7Sheet>
                 physics: const ClampingScrollPhysics(),
                 keyboardDismissBehavior:
                     ScrollViewKeyboardDismissBehavior.onDrag,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                  // Top Pill Grab Handle
-                  Container(
-                    width: 44.w,
-                    height: 4.5.h,
-                    decoration: BoxDecoration(
-                      color: AppColors.primaryOrange.withValues(alpha: 0.45),
-                      borderRadius: BorderRadius.circular(10.r),
-                    ),
-                  ),
-
-                  SizedBox(height: 14.h),
-
-                  // Header: "Otp Verification V7" with glowing orange V7
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                child: AutofillGroup(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text(
-                        AppStrings.otpV7TopTitle,
-                        style: AppTypography.h4.copyWith(
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.textPrimary,
-                          letterSpacing: 0.3,
-                        ),
-                      ),
-                      SizedBox(width: 8.w),
+                      // Top Pill Grab Handle
                       Container(
-                        padding: EdgeInsets.symmetric(
-                          horizontal: 7.w,
-                          vertical: 2.h,
-                        ),
+                        width: 44.w,
+                        height: 4.5.h,
                         decoration: BoxDecoration(
-                          color: AppColors.otpOrangeAccent.withValues(
-                            alpha: 0.15,
+                          color: AppColors.primaryOrange.withValues(
+                            alpha: 0.45,
                           ),
-                          borderRadius: BorderRadius.circular(
-                            AppDecorations.radiusSm,
-                          ),
-                          border: Border.all(
-                            color: AppColors.otpOrangeAccent.withValues(
-                              alpha: 0.4,
-                            ),
-                          ),
-                        ),
-                        child: Text(
-                          AppStrings.otpV7TopVersion,
-                          style: TextStyle(
-                            color: AppColors.otpOrangeAccent,
-                            fontSize: 10.5.sp,
-                            fontWeight: FontWeight.w800,
-                          ),
+                          borderRadius: BorderRadius.circular(10.r),
                         ),
                       ),
-                    ],
-                  ),
 
-                  SizedBox(height: 16.h),
+                      SizedBox(height: 14.h),
 
-                  // Dynamic Subtitle / Status text
-                  AnimatedBuilder(
-                    animation: _textCrossFadeAnimation,
-                    builder: (context, _) {
-                      final isSuccess = _textCrossFadeAnimation.value > 0.5;
-                      return Column(
-                        children: [
-                          Text(
-                            isSuccess
-                                ? AppStrings.otpV7SuccessTitle
-                                : AppStrings.otpV7Title,
-                            style: AppTypography.h3.copyWith(
-                              color: isSuccess
-                                  ? AppColors.creditGreen
-                                  : AppColors.textPrimary,
-                              fontWeight: FontWeight.w800,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                          SizedBox(height: 6.h),
-                          Text(
-                            isSuccess
-                                ? AppStrings.otpV7SuccessSubtitle
-                                : widget.channel == 'EMAIL'
-                                    ? "We've sent a 4-digit code to ${widget.phone}.\nCheck your inbox & spam folder."
-                                    : "We've sent a 4-digit code to ${widget.phone}.\nIt'll auto-verify once entered.",
-                            style: AppTypography.bodySmall.copyWith(
-                              color: AppColors.textSecondary,
-                              height: 1.35,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                        ],
-                      );
-                    },
-                  ),
+                      SizedBox(height: 16.h),
 
-                  SizedBox(height: 14.h),
-
-                  // Dev OTP Auto-Detection & Quick Fill Banner
-                  if (!_isAnimatingSequence && Get.isRegistered<AuthController>())
-                    Obx(() {
-                      final devCode =
-                          Get.find<AuthController>().serverDevOtp.value;
-                      if (devCode.isEmpty) return const SizedBox.shrink();
-
-                      return Padding(
-                        padding: EdgeInsets.only(bottom: 12.h),
-                        child: InkWell(
-                          onTap: () => _autoFillDevOtp(devCode),
-                          borderRadius: BorderRadius.circular(
-                            AppDecorations.radiusPill,
-                          ),
-                          child: Container(
-                            padding: EdgeInsets.symmetric(
-                              horizontal: 14.w,
-                              vertical: 6.h,
-                            ),
-                            decoration: BoxDecoration(
-                              color: AppColors.otpOrangeAccent.withValues(
-                                alpha: 0.15,
+                      // Dynamic Subtitle / Status text
+                      AnimatedBuilder(
+                        animation: _textCrossFadeAnimation,
+                        builder: (context, _) {
+                          final isSuccess = _textCrossFadeAnimation.value > 0.5;
+                          return Column(
+                            children: [
+                              Text(
+                                isSuccess
+                                    ? AppStrings.otpV7SuccessTitle
+                                    : AppStrings.otpV7Title,
+                                style: AppTypography.h3.copyWith(
+                                  color: isSuccess
+                                      ? AppColors.creditGreen
+                                      : AppColors.textPrimary,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                                textAlign: TextAlign.center,
                               ),
+                              SizedBox(height: 6.h),
+                              Text(
+                                isSuccess
+                                    ? AppStrings.otpV7SuccessSubtitle
+                                    : widget.channel == 'EMAIL'
+                                    ? "We've sent a 6-digit code to ${widget.phone}.\nCheck your inbox & spam folder."
+                                    : "We've sent a 6-digit code to ${widget.phone}.\nIt'll auto-verify once entered.",
+                                style: AppTypography.bodySmall.copyWith(
+                                  color: AppColors.textSecondary,
+                                  height: 1.35,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+
+                      SizedBox(height: 14.h),
+
+                      // Server OTP Auto-Fill Banner (Only shown if real OTP returned by server)
+                      if (!_isAnimatingSequence &&
+                          Get.isRegistered<AuthController>())
+                        Obx(() {
+                          final devCode =
+                              Get.find<AuthController>().serverDevOtp.value;
+                          if (devCode.isEmpty) {
+                            return const SizedBox.shrink();
+                          }
+
+                          return Padding(
+                            padding: EdgeInsets.only(bottom: 12.h),
+                            child: InkWell(
+                              onTap: () => _autoFillDevOtp(devCode),
                               borderRadius: BorderRadius.circular(
                                 AppDecorations.radiusPill,
                               ),
-                              border: Border.all(
-                                color: AppColors.otpOrangeAccent.withValues(
-                                  alpha: 0.5,
+                              child: Container(
+                                padding: EdgeInsets.symmetric(
+                                  horizontal: 14.w,
+                                  vertical: 6.h,
                                 ),
-                                width: 1.2.w,
-                              ),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  Icons.bolt_rounded,
-                                  color: AppColors.otpOrangeAccent,
-                                  size: 16.sp,
-                                ),
-                                SizedBox(width: 6.w),
-                                Text(
-                                  'Dev OTP Received: $devCode (Tap to Autofill)',
-                                  style: TextStyle(
-                                    color: AppColors.otpOrangeAccent,
-                                    fontWeight: FontWeight.w800,
-                                    fontSize: 11.5.sp,
+                                decoration: BoxDecoration(
+                                  color: AppColors.primaryEmerald.withValues(
+                                    alpha: 0.12,
+                                  ),
+                                  borderRadius: BorderRadius.circular(
+                                    AppDecorations.radiusPill,
+                                  ),
+                                  border: Border.all(
+                                    color: AppColors.primaryEmerald.withValues(
+                                      alpha: 0.4,
+                                    ),
+                                    width: 1.2.w,
                                   ),
                                 ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      );
-                    }),
-
-                  SizedBox(height: 10.h),
-
-                  // -------------------------------------------------------------
-                  // The Central Reel Morphing Stage (280w x 170h)
-                  // -------------------------------------------------------------
-                  SizedBox(
-                    width: 280.w,
-                    height: 170.h,
-                    child: AnimatedBuilder(
-                      animation: _animController,
-                      builder: (context, child) {
-                        return Stack(
-                          alignment: Alignment.center,
-                          children: [
-                            // Layer 1: The Connecting Square Circuit Lines (Phase 2)
-                            if (_circuitLineAnimation.value > 0.0 &&
-                                _implosionAnimation.value < 1.0)
-                              Opacity(
-                                opacity: (1.0 - _implosionAnimation.value)
-                                    .clamp(0.0, 1.0),
-                                child: CustomPaint(
-                                  size: Size(280.w, 170.h),
-                                  painter: _SquareCircuitPainter(
-                                    progress: _circuitLineAnimation.value,
-                                    dx:
-                                        42.w *
-                                        (1.0 - _implosionAnimation.value),
-                                    dy:
-                                        42.h *
-                                        (1.0 - _implosionAnimation.value),
-                                    color: AppColors.otpOrangeAccent,
-                                  ),
-                                ),
-                              ),
-
-                            // Layer 2: The 4 Digit Boxes (Morphing & Imploding)
-                            if (_implosionAnimation.value < 1.0)
-                              ...List.generate(_otpLength, (index) {
-                                return _buildMorphingBox(index);
-                              }),
-
-                            // Layer 3: Central Emerald Green Checkmark Square (Phase 4 & 5)
-                            if (_successBoxScaleAnimation.value > 0.0)
-                              Transform.scale(
-                                scale: _successBoxScaleAnimation.value,
-                                child: Column(
+                                child: Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    Container(
-                                      width: 64.r,
-                                      height: 64.r,
-                                      decoration: BoxDecoration(
-                                        color: AppColors.creditGreenBg,
-                                        borderRadius: BorderRadius.circular(
-                                          16.r,
-                                        ),
-                                        border: Border.all(
-                                          color: AppColors.creditGreen,
-                                          width: 2.2.w,
-                                        ),
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: AppColors.creditGreen
-                                                .withValues(alpha: 0.30),
-                                            blurRadius: 20.r,
-                                            spreadRadius: 3.r,
-                                          ),
-                                        ],
-                                      ),
-                                      child: Center(
-                                        child: Stack(
-                                          alignment: Alignment.center,
-                                          children: [
-                                            CustomPaint(
-                                              size: Size(32.r, 32.r),
-                                              painter: _ReelCheckmarkPainter(
-                                                progress:
-                                                    _checkStrokeAnimation.value,
-                                                color: AppColors.creditGreen,
-                                              ),
-                                            ),
-                                            if (_checkStrokeAnimation.value >=
-                                                0.85)
-                                              Icon(
-                                                Icons.check_rounded,
-                                                color: AppColors.creditGreen,
-                                                size: 34.sp,
-                                              ),
-                                          ],
-                                        ),
-                                      ),
+                                    Icon(
+                                      Icons.bolt_rounded,
+                                      color: AppColors.primaryEmerald,
+                                      size: 16.sp,
                                     ),
-
-                                    SizedBox(height: 16.h),
-
-                                    // "🔒 Verified and Secure" Badge
-                                    Opacity(
-                                      opacity: _checkStrokeAnimation.value,
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Icon(
-                                            Icons.lock_outline_rounded,
-                                            color: AppColors.creditGreenLight,
-                                            size: 15.sp,
-                                          ),
-                                          SizedBox(width: 5.w),
-                                          Text(
-                                            AppStrings.otpV7VerifiedAndSecure,
-                                            style: AppTypography.bodySmall
-                                                .copyWith(
-                                                  color: AppColors
-                                                      .creditGreenLight,
-                                                  fontWeight: FontWeight.w700,
-                                                  letterSpacing: 0.3,
-                                                ),
-                                          ),
-                                        ],
+                                    SizedBox(width: 6.w),
+                                    Text(
+                                      'OTP Received: $devCode (Tap to Fill)',
+                                      style: TextStyle(
+                                        color: AppColors.primaryEmerald,
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 12.sp,
                                       ),
                                     ),
                                   ],
                                 ),
                               ),
-                          ],
-                        );
-                      },
-                    ),
-                  ),
+                            ),
+                          );
+                        }),
 
-                  SizedBox(height: 24.h),
-                  // Footer: Live Resend & Verification state
-                  if (!_isAnimatingSequence) ...[
-                    if (_isVerifying) ...[
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          SizedBox(
-                            width: 16.r,
-                            height: 16.r,
-                            child: const CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(
-                                AppColors.otpOrangeAccent,
-                              ),
-                            ),
-                          ),
-                          SizedBox(width: 10.w),
-                          Text(
-                            'Verifying code with server...',
-                            style: AppTypography.bodySmall.copyWith(
-                              color: AppColors.otpOrangeAccent,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ] else ...[
-                      Wrap(
-                        alignment: WrapAlignment.center,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        children: [
-                          Text(
-                            AppStrings.otpV7DidntReceive,
-                            style: AppTypography.bodySmall.copyWith(
-                              color: AppColors.textSecondary,
-                            ),
-                          ),
-                          SizedBox(width: 4.w),
-                          InkWell(
-                            onTap: _isResending ? null : _handleResend,
-                            child: _isResending
-                                ? SizedBox(
-                                    width: 12.r,
-                                    height: 12.r,
-                                    child: const CircularProgressIndicator(
-                                      strokeWidth: 1.8,
-                                      valueColor:
-                                          AlwaysStoppedAnimation<Color>(
-                                        AppColors.primaryEmerald,
+                      SizedBox(height: 10.h),
+
+                      // ── Central Reel Stage (6-digit, 320w x 180h) ──────────────
+                      SizedBox(
+                        width: 320.w,
+                        height: 180.h,
+                        child: AnimatedBuilder(
+                          animation: Listenable.merge([
+                            _orbitProgress,
+                            _animController,
+                            _activePulseController,
+                          ]),
+                          builder: (context, child) {
+                            return Stack(
+                              alignment: Alignment.center,
+                              children: [
+                                // Phase 2: Circuit lines for 2×3 grid
+                                if (_circuitLineAnimation.value > 0.0 &&
+                                    _implosionAnimation.value < 1.0)
+                                  Opacity(
+                                    opacity: (1.0 - _implosionAnimation.value)
+                                        .clamp(0.0, 1.0),
+                                    child: CustomPaint(
+                                      size: Size(320.w, 180.h),
+                                      painter: _SixBoxCircuitPainter(
+                                        progress: _circuitLineAnimation.value,
+                                        colSpacing:
+                                            48.w *
+                                            (1.0 - _implosionAnimation.value),
+                                        rowSpacing:
+                                            44.h *
+                                            (1.0 - _implosionAnimation.value),
+                                        implode: _implosionAnimation.value,
+                                        color: AppColors.otpOrangeAccent,
                                       ),
                                     ),
-                                  )
-                                : Text(
-                                    AppStrings.otpV7Resend,
-                                    style: AppTypography.bodySmall.copyWith(
-                                      color: AppColors.primaryEmerald,
-                                      fontWeight: FontWeight.w700,
+                                  ),
+
+                                // The 6 boxes — orbit entry or morphing+imploding
+                                if (_implosionAnimation.value < 1.0)
+                                  ...List.generate(_otpLength, (index) {
+                                    return _orbitDone
+                                        ? _buildMorphingBox(index)
+                                        : _buildOrbitBox(index);
+                                  }),
+
+                                // Layer 3: Central Emerald Green Checkmark Square (Phase 4 & 5)
+                                if (_successBoxScaleAnimation.value > 0.0)
+                                  Transform.scale(
+                                    scale: _successBoxScaleAnimation.value,
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Container(
+                                          width: 64.r,
+                                          height: 64.r,
+                                          decoration: BoxDecoration(
+                                            color: AppColors.creditGreenBg,
+                                            borderRadius: BorderRadius.circular(
+                                              16.r,
+                                            ),
+                                            border: Border.all(
+                                              color: AppColors.creditGreen,
+                                              width: 2.2.w,
+                                            ),
+                                            boxShadow: [
+                                              BoxShadow(
+                                                color: AppColors.creditGreen
+                                                    .withValues(alpha: 0.30),
+                                                blurRadius: 20.r,
+                                                spreadRadius: 3.r,
+                                              ),
+                                            ],
+                                          ),
+                                          child: Center(
+                                            child: Stack(
+                                              alignment: Alignment.center,
+                                              children: [
+                                                CustomPaint(
+                                                  size: Size(32.r, 32.r),
+                                                  painter: _ReelCheckmarkPainter(
+                                                    progress:
+                                                        _checkStrokeAnimation
+                                                            .value,
+                                                    color:
+                                                        AppColors.creditGreen,
+                                                  ),
+                                                ),
+                                                if (_checkStrokeAnimation
+                                                        .value >=
+                                                    0.85)
+                                                  Icon(
+                                                    Icons.check_rounded,
+                                                    color:
+                                                        AppColors.creditGreen,
+                                                    size: 34.sp,
+                                                  ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+
+                                        SizedBox(height: 16.h),
+
+                                        // "🔒 Verified and Secure" Badge
+                                        Opacity(
+                                          opacity: _checkStrokeAnimation.value,
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(
+                                                Icons.lock_outline_rounded,
+                                                color:
+                                                    AppColors.creditGreenLight,
+                                                size: 15.sp,
+                                              ),
+                                              SizedBox(width: 5.w),
+                                              Text(
+                                                AppStrings
+                                                    .otpV7VerifiedAndSecure,
+                                                style: AppTypography.bodySmall
+                                                    .copyWith(
+                                                      color: AppColors
+                                                          .creditGreenLight,
+                                                      fontWeight:
+                                                          FontWeight.w700,
+                                                      letterSpacing: 0.3,
+                                                    ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ),
+                              ],
+                            );
+                          },
+                        ),
+                      ),
+
+                      SizedBox(height: 24.h),
+                      // Footer: Live Resend & Verification state
+                      if (!_isAnimatingSequence) ...[
+                        if (_isVerifying) ...[
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              SizedBox(
+                                width: 16.r,
+                                height: 16.r,
+                                child: const CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                    AppColors.otpOrangeAccent,
+                                  ),
+                                ),
+                              ),
+                              SizedBox(width: 10.w),
+                              Text(
+                                'Verifying code with server...',
+                                style: AppTypography.bodySmall.copyWith(
+                                  color: AppColors.otpOrangeAccent,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ] else ...[
+                          Wrap(
+                            alignment: WrapAlignment.center,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: [
+                              Text(
+                                AppStrings.otpV7DidntReceive,
+                                style: AppTypography.bodySmall.copyWith(
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
+                              SizedBox(width: 6.w),
+                              if (_resendSeconds > 0)
+                                Container(
+                                  padding: EdgeInsets.symmetric(
+                                    horizontal: 10.w,
+                                    vertical: 4.h,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.bgPrimary,
+                                    borderRadius: BorderRadius.circular(
+                                      AppDecorations.radiusSm,
+                                    ),
+                                    border: Border.all(
+                                      color: AppColors.borderSubtle,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        Icons.timer_outlined,
+                                        size: 13.sp,
+                                        color: AppColors.primaryEmerald,
+                                      ),
+                                      SizedBox(width: 4.w),
+                                      Text(
+                                        'Resend in ${_resendSeconds.toString().padLeft(2, '0')}s',
+                                        style: TextStyle(
+                                          color: AppColors.textPrimary,
+                                          fontWeight: FontWeight.w700,
+                                          fontSize: 11.5.sp,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                )
+                              else
+                                InkWell(
+                                  onTap: _isResending ? null : _handleResend,
+                                  child: _isResending
+                                      ? SizedBox(
+                                          width: 14.r,
+                                          height: 14.r,
+                                          child:
+                                              const CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                                valueColor:
+                                                    AlwaysStoppedAnimation<
+                                                      Color
+                                                    >(AppColors.primaryEmerald),
+                                              ),
+                                        )
+                                      : Text(
+                                          AppStrings.otpV7Resend,
+                                          style: AppTypography.bodySmall
+                                              .copyWith(
+                                                color: AppColors.primaryEmerald,
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                        ),
+                                ),
+                            ],
                           ),
                         ],
-                      ),
+                      ],
                     ],
-                  ],
-                ],
-              ),
+                  ),
+                ),
               ),
             ),
           ],
@@ -760,37 +856,73 @@ class _UniqueOtpV7SheetState extends State<UniqueOtpV7Sheet>
     );
   }
 
-  /// Builds each morphing digit box that smoothly interpolates between:
-  /// - Initial: Horizontal row `[0] [1] [2] [3]`
-  /// - Morph: 2x2 Square Grid `[0] [1]` on top, `[2] [3]` on bottom
-  /// - Implosion: Collapses into (0, 0)
+  // ─── Orbit Entry Box ────────────────────────────────────────────────────
+  /// 6 boxes spawn from center, orbit elliptically 1.5 turns,
+  /// then snap into horizontal row.
+  Widget _buildOrbitBox(int index) {
+    final double t = _orbitProgress.value;
+    const double orbitEnd = 0.70;
+
+    // Final target in horizontal row
+    final double targetX = (index - 2.5) * 53.w;
+    const double targetY = 0.0;
+
+    final double orbitRadius = 72.r;
+    final double startAngle = (index / _otpLength) * 2 * math.pi;
+    const double totalRotation = 1.5 * 2 * math.pi;
+
+    double finalX, finalY, scale;
+
+    if (t <= orbitEnd) {
+      final double orbitT = t / orbitEnd;
+      final double angle = startAngle + orbitT * totalRotation;
+      final double radiusFade = orbitT * orbitRadius;
+      finalX = math.cos(angle) * radiusFade * 1.4;
+      finalY = math.sin(angle) * radiusFade * 0.6;
+      scale = orbitT.clamp(0.0, 1.0);
+    } else {
+      final double snapT = ((t - orbitEnd) / (1.0 - orbitEnd)).clamp(0.0, 1.0);
+      final double easedSnap = Curves.easeOutBack.transform(snapT);
+      final double angle = startAngle + totalRotation;
+      final double lastX = math.cos(angle) * orbitRadius * 1.4;
+      final double lastY = math.sin(angle) * orbitRadius * 0.6;
+      finalX = lastX + (targetX - lastX) * easedSnap;
+      finalY = lastY + (targetY - lastY) * easedSnap;
+      scale = 1.0;
+    }
+
+    return Transform.translate(
+      offset: Offset(finalX, finalY),
+      child: Transform.scale(
+        scale: scale,
+        child: _buildBoxContainer(index, false, false),
+      ),
+    );
+  }
+
+  // ─── Morphing + Imploding Box (post-orbit / success sequence) ─────────────
+  /// Horizontal row → 2×3 grid → implosion to center
   Widget _buildMorphingBox(int index) {
-    // 1. Starting position in horizontal line
-    // Total row span ~ 250.w, step ~ 62.w
-    final double initialX = (index - 1.5) * 62.w;
+    // 1. Starting: horizontal row of 6, step 53w
+    final double initialX = (index - 2.5) * 53.w;
     const double initialY = 0.0;
 
-    // 2. 2x2 Grid Target position (dx = 42.w, dy = 42.h)
-    // Box 0: Top-Left  (-42, -42)
-    // Box 1: Top-Right (+42, -42)
-    // Box 2: Bottom-Left (-42, +42)
-    // Box 3: Bottom-Right (+42, +42)
-    final double gridX = (index % 2 == 0 ? -42.w : 42.w);
-    final double gridY = (index < 2 ? -42.h : 42.h);
+    // 2. 2×3 grid — col = index%3 ∈ {0,1,2}, row = index<3 (top) vs ≥3 (bottom)
+    final double colDx = 48.w;
+    final double rowDy = 44.h;
+    final double gridX = (index % 3 - 1) * colDx;
+    final double gridY = (index < 3 ? -rowDy : rowDy);
 
-    // Interpolate from Initial -> Grid (via _gridMorphAnimation)
     final double currentXBeforeImplosion =
         initialX + (gridX - initialX) * _gridMorphAnimation.value;
     final double currentYBeforeImplosion =
         initialY + (gridY - initialY) * _gridMorphAnimation.value;
 
-    // Interpolate from Grid -> Center (0, 0) (via _implosionAnimation)
     final double finalX =
         currentXBeforeImplosion * (1.0 - _implosionAnimation.value);
     final double finalY =
         currentYBeforeImplosion * (1.0 - _implosionAnimation.value);
 
-    // Scale shrinks to 0.0 as implosion finishes
     final double scale = (1.0 - _implosionAnimation.value).clamp(0.0, 1.0);
 
     final bool isFocused = !_isAnimatingSequence && _focusNodes[index].hasFocus;
@@ -800,167 +932,156 @@ class _UniqueOtpV7SheetState extends State<UniqueOtpV7Sheet>
       offset: Offset(finalX, finalY),
       child: Transform.scale(
         scale: scale,
-        child: Container(
-          width: 54.w,
-          height: 56.h,
-          decoration: BoxDecoration(
-            color: AppColors.otpBoxBg,
-            borderRadius: BorderRadius.circular(14.r),
-            border: Border.all(
-              color: isFocused
-                  ? AppColors.otpOrangeBorder
-                  : (hasValue
-                        ? AppColors.otpBoxBorderFilled
-                        : AppColors.otpBoxBorderIdle),
-              width: isFocused ? 2.0.w : 1.2.w,
-            ),
-            boxShadow: isFocused
-                ? [
-                    BoxShadow(
-                      color: AppColors.otpOrangeGlow.withValues(
-                        alpha: 0.3 + (_activePulseController.value * 0.35),
-                      ),
-                      blurRadius: 14.r,
-                      spreadRadius: 1.5.r,
-                    ),
-                  ]
-                : null,
-          ),
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              // Displayed Digit
-              if (hasValue)
-                Text(
-                  _controllers[index].text,
-                  style: AppTypography.h1.copyWith(
-                    color: AppColors.textPrimary,
-                    fontSize: 24.sp,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
+        child: _buildBoxContainer(index, isFocused, hasValue),
+      ),
+    );
+  }
 
-              // Hidden input field for keyboard handling
-              if (!_isAnimatingSequence)
-                KeyboardListener(
-                  focusNode: FocusNode(),
-                  onKeyEvent: (event) {
-                    if (event is KeyDownEvent &&
-                        event.logicalKey == LogicalKeyboardKey.backspace) {
-                      if (_controllers[index].text.isEmpty && index > 0) {
-                        _focusNodes[index - 1].requestFocus();
-                        _controllers[index - 1].clear();
-                        setState(() {});
-                      }
-                    }
-                  },
-                  child: TextField(
-                    controller: _controllers[index],
-                    focusNode: _focusNodes[index],
-                    keyboardType: TextInputType.number,
-                    textAlign: TextAlign.center,
-                    maxLength: 1,
-                    cursorColor: AppColors.transparent,
-                    style: const TextStyle(color: AppColors.transparent),
-                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                    decoration: const InputDecoration(
-                      counterText: '',
-                      border: InputBorder.none,
-                      contentPadding: EdgeInsets.zero,
-                    ),
-                    onChanged: (val) => _onDigitChanged(index, val),
-                  ),
-                ),
-            ],
-          ),
+  // ─── Shared Box Container ───────────────────────────────────────────────────
+  Widget _buildBoxContainer(int index, bool isFocused, bool hasValue) {
+    return Container(
+      width: 44.w,
+      height: 52.h,
+      decoration: BoxDecoration(
+        color: AppColors.otpBoxBg,
+        borderRadius: BorderRadius.circular(12.r),
+        border: Border.all(
+          color: isFocused
+              ? AppColors.otpOrangeBorder
+              : (hasValue
+                    ? AppColors.otpBoxBorderFilled
+                    : AppColors.otpBoxBorderIdle),
+          width: isFocused ? 2.0.w : 1.2.w,
         ),
+        boxShadow: isFocused
+            ? [
+                BoxShadow(
+                  color: AppColors.otpOrangeGlow.withValues(
+                    alpha: 0.3 + (_activePulseController.value * 0.35),
+                  ),
+                  blurRadius: 14.r,
+                  spreadRadius: 1.5.r,
+                ),
+              ]
+            : null,
+      ),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          if (hasValue)
+            Text(
+              _controllers[index].text,
+              style: AppTypography.h1.copyWith(
+                color: AppColors.textPrimary,
+                fontSize: 22.sp,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          if (!_isAnimatingSequence && _orbitDone)
+            KeyboardListener(
+              focusNode: FocusNode(),
+              onKeyEvent: (event) {
+                if (event is KeyDownEvent &&
+                    event.logicalKey == LogicalKeyboardKey.backspace) {
+                  if (_controllers[index].text.isEmpty && index > 0) {
+                    _focusNodes[index - 1].requestFocus();
+                    _controllers[index - 1].clear();
+                    setState(() {});
+                  }
+                }
+              },
+              child: TextField(
+                controller: _controllers[index],
+                focusNode: _focusNodes[index],
+                keyboardType: TextInputType.number,
+                autofillHints: const [AutofillHints.oneTimeCode],
+                textAlign: TextAlign.center,
+                cursorColor: AppColors.transparent,
+                style: const TextStyle(color: AppColors.transparent),
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                decoration: const InputDecoration(
+                  counterText: '',
+                  border: InputBorder.none,
+                  contentPadding: EdgeInsets.zero,
+                ),
+                onChanged: (val) => _onDigitChanged(index, val),
+              ),
+            ),
+        ],
       ),
     );
   }
 }
 
-/// Draws the circuit lines connecting the 4 boxes into a closed square (Phase 2)
-class _SquareCircuitPainter extends CustomPainter {
+/// Draws circuit lines connecting the 6 boxes in a 2×3 grid (Phase 2)
+class _SixBoxCircuitPainter extends CustomPainter {
   final double progress;
-  final double dx;
-  final double dy;
+  final double colSpacing;
+  final double rowSpacing;
+  final double implode;
   final Color color;
 
-  _SquareCircuitPainter({
+  _SixBoxCircuitPainter({
     required this.progress,
-    required this.dx,
-    required this.dy,
+    required this.colSpacing,
+    required this.rowSpacing,
+    required this.implode,
     required this.color,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
     if (progress <= 0.0) return;
-
     final paint = Paint()
       ..color = color
-      ..strokeWidth = 2.0.w
+      ..strokeWidth = 1.8.w
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
 
-    final centerX = size.width / 2;
-    final centerY = size.height / 2;
+    final cx = size.width / 2;
+    final cy = size.height / 2;
 
-    // 4 Corner nodes of the 2x2 grid
-    final pTopLeft = Offset(centerX - dx, centerY - dy);
-    final pTopRight = Offset(centerX + dx, centerY - dy);
-    final pBottomRight = Offset(centerX + dx, centerY + dy);
-    final pBottomLeft = Offset(centerX - dx, centerY + dy);
+    // 6 node positions matching 2×3 grid
+    final nodes = [
+      Offset(cx - colSpacing, cy - rowSpacing), // 0: top-left
+      Offset(cx, cy - rowSpacing), // 1: top-center
+      Offset(cx + colSpacing, cy - rowSpacing), // 2: top-right
+      Offset(cx - colSpacing, cy + rowSpacing), // 3: bottom-left
+      Offset(cx, cy + rowSpacing), // 4: bottom-center
+      Offset(cx + colSpacing, cy + rowSpacing), // 5: bottom-right
+    ];
+
+    // Perimeter: 0→1→2→5→4→3→0
+    final perimeter = [
+      nodes[0],
+      nodes[1],
+      nodes[2],
+      nodes[5],
+      nodes[4],
+      nodes[3],
+      nodes[0],
+    ];
+    final totalSegments = perimeter.length - 1;
+    final segProgress = progress * totalSegments;
 
     final path = Path();
-    path.moveTo(pTopLeft.dx, pTopLeft.dy);
-
-    // Segment 1: Top (0.0 -> 0.25)
-    if (progress < 0.25) {
-      final t = progress / 0.25;
-      path.lineTo(pTopLeft.dx + (pTopRight.dx - pTopLeft.dx) * t, pTopLeft.dy);
-    } else {
-      path.lineTo(pTopRight.dx, pTopRight.dy);
-
-      // Segment 2: Right (0.25 -> 0.50)
-      if (progress < 0.50) {
-        final t = (progress - 0.25) / 0.25;
-        path.lineTo(
-          pTopRight.dx,
-          pTopRight.dy + (pBottomRight.dy - pTopRight.dy) * t,
-        );
-      } else {
-        path.lineTo(pBottomRight.dx, pBottomRight.dy);
-
-        // Segment 3: Bottom (0.50 -> 0.75)
-        if (progress < 0.75) {
-          final t = (progress - 0.50) / 0.25;
-          path.lineTo(
-            pBottomRight.dx + (pBottomLeft.dx - pBottomRight.dx) * t,
-            pBottomRight.dy,
-          );
-        } else {
-          path.lineTo(pBottomLeft.dx, pBottomLeft.dy);
-
-          // Segment 4: Left (0.75 -> 1.0)
-          final t = ((progress - 0.75) / 0.25).clamp(0.0, 1.0);
-          path.lineTo(
-            pBottomLeft.dx,
-            pBottomLeft.dy + (pTopLeft.dy - pBottomLeft.dy) * t,
-          );
-        }
-      }
+    path.moveTo(perimeter[0].dx, perimeter[0].dy);
+    for (int s = 0; s < totalSegments; s++) {
+      if (segProgress <= s) break;
+      final t = (segProgress - s).clamp(0.0, 1.0);
+      final from = perimeter[s];
+      final to = perimeter[s + 1];
+      path.lineTo(
+        from.dx + (to.dx - from.dx) * t,
+        from.dy + (to.dy - from.dy) * t,
+      );
     }
-
     canvas.drawPath(path, paint);
   }
 
   @override
-  bool shouldRepaint(covariant _SquareCircuitPainter oldDelegate) {
-    return oldDelegate.progress != progress ||
-        oldDelegate.dx != dx ||
-        oldDelegate.dy != dy;
-  }
+  bool shouldRepaint(covariant _SixBoxCircuitPainter old) =>
+      old.progress != progress || old.implode != implode;
 }
 
 /// Precise SVG-Style Checkmark Painter for the final central square

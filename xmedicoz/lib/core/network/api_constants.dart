@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart' show kIsWeb;
 
 class ApiConstants {
-  static const String _mobileBaseUrl = 'http://134.195.138.153:5095/api/v1';
+  static const String _mobileBaseUrl = 'https://xmedicoz.com/api/v1';
   static const String _webBaseUrl = '/api/v1';
   static const String _configuredBaseUrl = String.fromEnvironment(
     'API_BASE_URL',
@@ -9,22 +9,22 @@ class ApiConstants {
 
   static String get baseUrl {
     if (_configuredBaseUrl.isNotEmpty) {
-      return _configuredBaseUrl;
+      var url = _configuredBaseUrl.trim();
+      while (url.endsWith('/')) {
+        url = url.substring(0, url.length - 1);
+      }
+      if (!url.endsWith('/v1')) {
+        url = '$url/v1';
+      }
+      return url;
     }
 
     if (kIsWeb) {
       final host = Uri.base.host.toLowerCase();
-      final isLocalDevelopment =
-          host == 'localhost' || host == '127.0.0.1' || host == '0.0.0.0';
-
-      // Route local Flutter Web traffic through the development proxy. Direct
-      // browser calls are blocked by the backend's same-origin resource policy.
-      if (isLocalDevelopment) {
-        final proxyHost = host == '0.0.0.0' ? 'localhost' : host;
-        return 'http://$proxyHost:8088/api/v1';
+      // On deployed xmedicoz.com domain, use relative path /api/v1
+      if (host.contains('xmedicoz.com')) {
+        return _webBaseUrl;
       }
-
-      return _webBaseUrl;
     }
 
     return _mobileBaseUrl;

@@ -29,6 +29,23 @@ class AppTheme {
         color: AppColors.borderSubtle,
         thickness: 1,
       ),
+      bottomSheetTheme: const BottomSheetThemeData(
+        backgroundColor: AppColors.bgSurface,
+        modalBackgroundColor: AppColors.bgSurface,
+        surfaceTintColor: AppColors.transparent,
+        elevation: 16,
+        constraints: BoxConstraints(
+          minWidth: double.infinity,
+          maxWidth: double.infinity,
+        ),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+      ),
+      dialogTheme: DialogThemeData(
+        backgroundColor: AppColors.bgSurface,
+        surfaceTintColor: AppColors.transparent,
+      ),
     );
   }
 

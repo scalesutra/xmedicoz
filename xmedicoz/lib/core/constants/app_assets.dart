@@ -5,7 +5,7 @@ class AppAssets {
   static const String _iconsDir = 'assets/icons';
 
   // Branded App Icons Matching the Theme
-  static const String appIcon = '$_iconsDir/app_icon.png';
+  static const String appIcon = '$_iconsDir/app_icon_xm.png';
   static const String appIcon3d = '$_iconsDir/app_icon.png';
   static const String appIconMinimal = '$_iconsDir/app_icon_minimal.png';
   static const String appIcon3dJpg = '$_iconsDir/app_icon_3d.jpg';

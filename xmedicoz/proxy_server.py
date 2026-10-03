@@ -1,7 +1,7 @@
 """
 Reverse Proxy Server for XMedicoz Web
 - Serves Flutter web build (static files) on /
-- Proxies /api/* requests to backend server http://134.195.138.153:5095/api/*
+- Proxies /api/* requests to backend server https://xmedicoz.com/api/*
 - Solves mixed content (HTTPS ngrok -> HTTP backend) issue
 """
 import os
@@ -12,7 +12,7 @@ from flask_cors import CORS
 app = Flask(__name__, static_folder=None)
 CORS(app)
 
-BACKEND_URL = 'http://134.195.138.153:5095'
+BACKEND_URL = 'https://xmedicoz.com'
 WEB_DIR = os.path.join(os.path.dirname(__file__), 'build', 'web')
 
 # Proxy all /api/* requests to backend

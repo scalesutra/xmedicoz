@@ -230,6 +230,7 @@ class ApiClient {
                   Get.find<AuthController>().clearAllAppData();
                 }
                 await StorageService.clearSession();
+                Get.offAllNamed(AppRoutes.login);
               }
             }
           }
@@ -269,7 +270,7 @@ class ApiClient {
     }
     if (options.data != null) {
       print('📦 Request Body:');
-      _printFullBody(options.data);
+      print('  ${options.data}');
     }
     print(
       '══════════════════════════════════════════════════════════════════════════════',
@@ -322,7 +323,7 @@ class ApiClient {
     print('💬 Message: ${error.message}');
     if (error.response?.data != null) {
       print('💥 Server Error Response Body:');
-      _printFullBody(error.response?.data);
+      print('  ${error.response?.data}');
     }
     print(
       '══════════════════════════════════════════════════════════════════════════════',
